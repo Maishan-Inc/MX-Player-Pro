@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, Check, Cloud, FileVideo, GitBranch, Moon, Sun } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Cloud, GitBranch, Moon, Play, Sun } from 'lucide-react'
 import type { SourceDescriptor } from './types'
 import PlayerSurface from './components/PlayerSurface'
 
 const RECENT_URL_KEY = 'mx-player-pro:recent-url'
+const GITHUB_URL = 'https://github.com/Maishan-Inc/MX-Player-Pro'
 
 export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('mx-player-pro:theme') as 'dark' | 'light') || 'dark')
   const [url, setUrl] = useState(() => localStorage.getItem(RECENT_URL_KEY) || '')
-  const [file, setFile] = useState<File | null>(null)
   const [source, setSource] = useState<SourceDescriptor | null>(null)
   const [sourceName, setSourceName] = useState('')
   const [inputError, setInputError] = useState('')
@@ -19,8 +19,8 @@ export default function App() {
     localStorage.setItem('mx-player-pro:theme', theme)
   }, [theme])
 
-  const canStart = Boolean(file || url.trim())
-  const sourceLabel = useMemo(() => file?.name || url.trim() || '未选择媒体', [file, url])
+  const canStart = Boolean(url.trim())
+  const sourceLabel = useMemo(() => url.trim() || '未选择媒体', [url])
 
   function acceptFile(nextFile: File | undefined) {
     if (!nextFile) return
@@ -28,25 +28,26 @@ export default function App() {
       setInputError('请选择 Matroska MKV 文件。')
       return
     }
-    setFile(nextFile)
-    setUrl('')
-    setInputError('')
+    beginPlayback({ kind: 'file', file: nextFile }, nextFile.name)
   }
 
-  function startPlayback() {
+  function startUrlPlayback() {
     const normalizedUrl = url.trim()
-    if (!file && !normalizedUrl) {
-      setInputError('请选择本地文件或输入云端 MKV 下载 URL。')
+    if (!normalizedUrl) {
+      setInputError('请输入云端 MKV 下载 URL。')
       return
     }
-    if (!file && !/^https?:\/\//i.test(normalizedUrl)) {
+    if (!/^https?:\/\//i.test(normalizedUrl)) {
       setInputError('云端地址必须以 http:// 或 https:// 开头。')
       return
     }
-    const nextSource: SourceDescriptor = file ? { kind: 'file', file } : { kind: 'url', url: normalizedUrl }
-    if (!file) localStorage.setItem(RECENT_URL_KEY, normalizedUrl)
+    localStorage.setItem(RECENT_URL_KEY, normalizedUrl)
+    beginPlayback({ kind: 'url', url: normalizedUrl }, normalizedUrl)
+  }
+
+  function beginPlayback(nextSource: SourceDescriptor, label: string) {
     setSource(nextSource)
-    setSourceName(file?.name || normalizedUrl)
+    setSourceName(label)
     setInputError('')
   }
 
@@ -54,46 +55,41 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="." aria-label="MX Player Pro">
-          <span className="brand-mark">MX</span>
-          <span>PLAYER <em>PRO</em></span>
-        </a>
-        <div className="topbar-actions">
-          <span className="status-dot"><i /> 纯客户端</span>
-          <button className="icon-button" title="切换主题" aria-label="切换主题" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-          <a className="icon-button" title="GitHub" aria-label="GitHub" href="https://github.com" target="_blank" rel="noreferrer"><GitBranch size={18} /></a>
-        </div>
-      </header>
-
+      <SiteHeader theme={theme} onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')} />
       <main className="home-main">
-        <section className="hero-copy">
-          <p className="eyebrow">LOCAL-FIRST / WEB CODECS</p>
-          <h1>把 MKV 留在你的设备上。</h1>
-          <p className="hero-subtitle">浏览器直接读取媒体，Rust WASM 解封装，WebCodecs 硬件解码。服务器只负责托管页面。</p>
-        </section>
-
-        <section className="ingest-grid" aria-label="选择媒体来源">
-          <label className={`drop-zone ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFile(event.dataTransfer.files[0]) }}>
-            <input type="file" accept=".mkv,video/x-matroska" onChange={(event) => acceptFile(event.target.files?.[0])} />
-            <span className="drop-icon"><FileVideo size={26} /></span>
-            <strong>{file ? file.name : '拖入 MKV 文件'}</strong>
-            <span>{file ? `${formatBytes(file.size)} · 已就绪` : '或点击选择本地文件'}</span>
-          </label>
-          <div className="url-panel">
-            <div className="panel-heading"><Cloud size={17} /><span>云端下载 URL</span></div>
-            <input value={url} onChange={(event) => { setUrl(event.target.value); setFile(null); setInputError('') }} placeholder="https://media.example.com/video.mkv" inputMode="url" />
-            <p className="field-hint">资源需支持 CORS、HTTP Range 和 206 Partial Content。</p>
+        <section className="player-launcher" aria-labelledby="player-heading">
+          <div className="launcher-heading">
+            <p className="eyebrow">MX PLAYER PRO</p>
+            <h1 id="player-heading">随时播放你的 MKV。</h1>
+            <p>拖入本地文件，或粘贴一个可下载的媒体地址。</p>
           </div>
+          <label
+            className={`home-player-frame ${dragging ? 'is-dragging' : ''}`}
+            onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFile(event.dataTransfer.files[0]) }}
+          >
+            <input type="file" accept=".mkv,video/x-matroska" onChange={(event) => acceptFile(event.target.files?.[0])} />
+            <span className="empty-player-icon"><Play size={25} fill="currentColor" /></span>
+            <strong>{dragging ? '松开即可开始播放' : '拖入 MKV 文件'}</strong>
+            <span>或点击选择本地文件</span>
+          </label>
+          <form className="url-form" onSubmit={(event) => { event.preventDefault(); startUrlPlayback() }}>
+            <Cloud size={18} aria-hidden="true" />
+            <input
+              value={url}
+              onChange={(event) => { setUrl(event.target.value); setInputError('') }}
+              placeholder="https://media.example.com/video.mkv"
+              inputMode="url"
+              aria-label="MKV 下载 URL"
+            />
+            <button type="submit" disabled={!canStart} className="primary-button">
+              播放 <ArrowRight size={17} aria-hidden="true" />
+            </button>
+          </form>
+          {inputError && <p className="input-error" role="alert">{inputError}</p>}
+          {canStart && <p className="selected-source">最近地址：{sourceLabel}</p>}
         </section>
-
-        {inputError && <p className="input-error" role="alert">{inputError}</p>}
-        <div className="start-row">
-          <button className="primary-button" disabled={!canStart} onClick={startPlayback}>检查并播放 <ArrowRight size={17} /></button>
-          {canStart && <span className="selected-source"><Check size={15} /> {sourceLabel}</span>}
-        </div>
 
         <section className="feature-strip" aria-label="播放器能力">
           <Feature title="Range 读取" text="按需请求，不把长片一次性下载。" />
@@ -101,17 +97,33 @@ export default function App() {
           <Feature title="零上传" text="文件和链接只在本机处理。" />
         </section>
       </main>
-      <footer className="site-footer"><span>MX Player Pro · MIT License</span><span>H.264 / AAC / SRT MVP</span></footer>
+      <footer className="site-footer">Powered by MXPlayer Pro © 2026 Maishan Inc. · MIT License</footer>
     </div>
+  )
+}
+
+function SiteHeader({ theme, onToggleTheme }: { theme: 'dark' | 'light'; onToggleTheme: () => void }) {
+  return (
+    <header className="topbar">
+      <nav className="topbar-nav" aria-label="外部链接">
+        <a href="https://freeanime.org" target="_blank" rel="noreferrer">Freeanime <ArrowUpRight size={13} aria-hidden="true" /></a>
+        <a href="https://search.freeanime.org" target="_blank" rel="noreferrer">Limitless Search <ArrowUpRight size={13} aria-hidden="true" /></a>
+      </nav>
+      <div className="topbar-actions">
+        <a className="collaboration-logo" href="https://freeanime.org" target="_blank" rel="noreferrer" aria-label="FREEANIME.ORG 与 Maishan Inc.">
+          <span className="freeanime-wordmark"><span>FREE</span><strong>ANIME</strong><span>.ORG</span></span>
+          <span className="brand-times" aria-hidden="true">×</span>
+          <img src={`${import.meta.env.BASE_URL}brands/maishan-on-dark.png`} alt="Maishan Inc." />
+        </a>
+        <button className="icon-button" title="切换主题" aria-label="切换主题" onClick={onToggleTheme}>
+          {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+        </button>
+        <a className="github-link" title="GitHub" aria-label="GitHub" href={GITHUB_URL} target="_blank" rel="noreferrer"><GitBranch size={16} /><span>GitHub</span></a>
+      </div>
+    </header>
   )
 }
 
 function Feature({ title, text }: { title: string; text: string }) {
   return <div className="feature-item"><strong>{title}</strong><span>{text}</span></div>
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }

@@ -10,6 +10,7 @@ export class RangeLoader {
   private size: number | null = null
   private contentType: string | null = null
   private rangeSupport = false
+  private fullBody: Uint8Array | null = null
   private lastProbe: ProbeInfo = { size: null, contentType: null, acceptsRanges: false, status: null, cors: 'unknown' }
 
   constructor(source: SourceDescriptor, chunkSize = DEFAULT_CHUNK_SIZE) {
@@ -26,53 +27,46 @@ export class RangeLoader {
       return this.lastProbe
     }
 
+    let head: Response | null = null
     try {
-      const response = await fetch(this.source.url, { method: 'HEAD', redirect: 'follow' })
-      const length = Number(response.headers.get('content-length'))
-      const acceptRanges = response.headers.get('accept-ranges')?.toLowerCase() === 'bytes'
-      this.size = Number.isFinite(length) && length > 0 ? length : null
-      this.contentType = response.headers.get('content-type')
-      this.rangeSupport = acceptRanges
+      head = await fetch(this.source.url, { method: 'HEAD', redirect: 'follow' })
+    } catch {
+      // A blocked or unsupported HEAD is followed by a CORS-readable GET probe.
+    }
+
+    if (head) {
+      this.size = this.parseLength(head.headers.get('content-length'))
+      this.contentType = head.headers.get('content-type')
+      this.rangeSupport = head.headers.get('accept-ranges')?.toLowerCase() === 'bytes'
       this.lastProbe = {
         size: this.size,
         contentType: this.contentType,
-        acceptsRanges: acceptRanges,
-        status: response.status,
+        acceptsRanges: this.rangeSupport,
+        status: head.status,
         cors: 'ok',
-        message: response.ok ? undefined : `探测请求返回 HTTP ${response.status}`,
+        message: head.ok && this.rangeSupport ? undefined : head.ok ? '正在验证 GET Range 响应' : `探测请求返回 HTTP ${head.status}`,
+      }
+      if (head.ok && this.rangeSupport) return this.lastProbe
+    }
+
+    try {
+      const response = await fetch(this.source.url, {
+        headers: { Range: 'bytes=0-0' },
+        redirect: 'follow',
+      })
+      this.updateFromResponse(response)
+      if (response.body) await response.body.cancel()
+      return this.lastProbe
+    } catch (error) {
+      this.lastProbe = {
+        size: this.size,
+        contentType: this.contentType,
+        acceptsRanges: false,
+        status: head?.status || null,
+        cors: 'blocked',
+        message: error instanceof Error ? error.message : '跨域或网络请求被阻止',
       }
       return this.lastProbe
-    } catch {
-      try {
-        const response = await fetch(this.source.url, {
-          headers: { Range: 'bytes=0-0' },
-          redirect: 'follow',
-        })
-        const contentRange = response.headers.get('content-range')
-        const match = contentRange?.match(/\/([0-9]+)$/)
-        this.size = match ? Number(match[1]) : null
-        this.contentType = response.headers.get('content-type')
-        this.rangeSupport = response.status === 206
-        this.lastProbe = {
-          size: this.size,
-          contentType: this.contentType,
-          acceptsRanges: this.rangeSupport,
-          status: response.status,
-          cors: 'ok',
-          message: this.rangeSupport ? undefined : '资源未返回 206 Partial Content',
-        }
-        return this.lastProbe
-      } catch (error) {
-        this.lastProbe = {
-          size: null,
-          contentType: null,
-          acceptsRanges: false,
-          status: null,
-          cors: 'blocked',
-          message: error instanceof Error ? error.message : '跨域或网络请求被阻止',
-        }
-        return this.lastProbe
-      }
     }
   }
 
@@ -101,20 +95,59 @@ export class RangeLoader {
   }
 
   private async readRemote(offset: number, length: number): Promise<Uint8Array> {
+    if (this.fullBody) return this.fullBody.slice(offset, offset + length)
     const end = offset + length - 1
     const response = await fetch(this.source.kind === 'url' ? this.source.url : '', {
       headers: { Range: `bytes=${offset}-${end}` },
       redirect: 'follow',
     })
     if (!response.ok) throw new Error(`RANGE_HTTP_${response.status}`)
-    if (offset > 0 && response.status !== 206) throw new Error('RANGE_UNSUPPORTED')
     const bytes = new Uint8Array(await response.arrayBuffer())
-    if (response.status === 206) this.rangeSupport = true
-    if (!this.size) {
-      const contentRange = response.headers.get('content-range')?.match(/\/([0-9]+)$/)
-      if (contentRange) this.size = Number(contentRange[1])
+    if (response.status === 206) {
+      this.updateFromResponse(response)
+      return bytes
     }
-    return bytes
+
+    // Some download servers ignore Range and return the whole representation.
+    // Keep it once, then serve all later offset reads locally.
+    if (response.status === 200) {
+      this.fullBody = bytes
+      this.size = bytes.byteLength
+      this.contentType = response.headers.get('content-type') || this.contentType
+      this.rangeSupport = false
+      this.lastProbe = {
+        size: this.size,
+        contentType: this.contentType,
+        acceptsRanges: false,
+        status: response.status,
+        cors: 'ok',
+        message: '资源未返回 206 Partial Content，将使用完整响应读取',
+      }
+      return bytes.slice(offset, offset + length)
+    }
+
+    throw new Error(`RANGE_HTTP_${response.status}`)
+  }
+
+  private parseLength(value: string | null): number | null {
+    const length = Number(value)
+    return Number.isFinite(length) && length > 0 ? length : null
+  }
+
+  private updateFromResponse(response: Response) {
+    const contentRange = response.headers.get('content-range')?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i)
+    const total = contentRange?.[3] && contentRange[3] !== '*' ? Number(contentRange[3]) : null
+    if (total && Number.isFinite(total)) this.size = total
+    this.contentType = response.headers.get('content-type') || this.contentType
+    this.rangeSupport = response.status === 206
+    this.lastProbe = {
+      size: this.size,
+      contentType: this.contentType,
+      acceptsRanges: this.rangeSupport,
+      status: response.status,
+      cors: 'ok',
+      message: this.rangeSupport ? undefined : '资源未返回 206 Partial Content',
+    }
   }
 
   get totalSize() { return this.size }
