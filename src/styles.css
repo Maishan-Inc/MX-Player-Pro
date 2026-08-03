@@ -36,7 +36,10 @@ a { color: inherit; text-decoration: none; }
 
 .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar, .player-topbar { min-height: 68px; border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; padding: 0 clamp(16px, 4vw, 56px); gap: 22px; }
-.topbar { justify-content: space-between; }
+.topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.topbar > .collaboration-logo { justify-self: start; }
+.topbar > .topbar-nav { justify-self: center; }
+.topbar > .topbar-actions { justify-self: end; }
 .topbar-nav, .topbar-actions, .player-topbar-right { display: flex; align-items: center; gap: 18px; }
 .topbar-nav a { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .02em; transition: color .16s ease; }
 .topbar-nav a:hover { color: var(--text); }
@@ -51,22 +54,17 @@ a { color: inherit; text-decoration: none; }
 .icon-button:hover, .control-button:hover, .modal-close:hover { background: var(--line-soft); }
 .github-link { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .github-link:hover { color: var(--text); }
+.github-mark { width: 17px; height: 17px; display: block; }
 .status-dot { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .status-dot i { display: block; width: 6px; height: 6px; border-radius: 50%; background: #8cffb0; box-shadow: 0 0 0 3px rgba(140,255,176,.08); }
 
 .home-main { width: min(1160px, calc(100% - 36px)); margin: 0 auto; flex: 1; padding: clamp(28px, 6vh, 72px) 0 58px; }
 .player-launcher { width: min(1040px, 100%); margin: 0 auto; }
-.launcher-heading { text-align: center; margin: 0 auto 24px; }
-.eyebrow { margin: 0 0 10px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .18em; }
-.launcher-heading h1 { margin: 0; font-size: clamp(30px, 5vw, 52px); line-height: 1.05; letter-spacing: 0; }
-.launcher-heading p:last-child { margin: 13px 0 0; color: var(--muted); font-size: 14px; }
 .home-player-frame { position: relative; aspect-ratio: 16 / 9; min-height: 310px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: #000; display: grid; place-items: center; align-content: center; gap: 10px; color: #fff; text-align: center; cursor: pointer; transition: border-color .18s ease, background .18s ease, transform .18s ease; }
 .home-player-frame:hover, .home-player-frame.is-dragging { border-color: var(--accent); background: #0b110d; }
 .home-player-frame.is-dragging { transform: scale(1.005); }
 .home-player-frame input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.empty-player-icon { width: 58px; height: 58px; border: 1px solid rgba(255,255,255,.34); border-radius: 50%; display: grid; place-items: center; padding-left: 3px; color: var(--accent); }
-.home-player-frame strong { font-size: 15px; font-weight: 700; }
-.home-player-frame > span:last-child { color: rgba(255,255,255,.58); font-size: 12px; }
+.empty-player-title { font-size: clamp(25px, 5vw, 52px); line-height: 1; letter-spacing: .03em; font-weight: 800; }
 .url-form { width: min(900px, 100%); min-height: 54px; margin: 18px auto 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 6px 7px 6px 15px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); }
 .url-form:focus-within { border-color: var(--text); }
 .url-form input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 13px; }
@@ -78,7 +76,6 @@ a { color: inherit; text-decoration: none; }
 .secondary-button { background: transparent; color: var(--text); border-color: var(--line); }
 .secondary-button:hover { border-color: var(--text); }
 .input-error { width: min(900px, 100%); margin: 12px auto 0; color: var(--danger); font-size: 12px; text-align: center; }
-.selected-source { width: min(900px, 100%); margin: 10px auto 0; overflow: hidden; color: var(--dim); font-size: 11px; text-overflow: ellipsis; text-align: center; white-space: nowrap; }
 .feature-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: clamp(46px, 8vh, 86px); padding-top: 22px; border-top: 1px solid var(--line-soft); }
 .feature-item { display: grid; gap: 6px; }
 .feature-item strong { font-size: 12px; }
@@ -140,7 +137,10 @@ a { color: inherit; text-decoration: none; }
 .player-status-line { display: flex; justify-content: space-between; gap: 12px; padding: 10px 2px; color: var(--dim); font-size: 11px; }
 
 @media (max-width: 760px) {
-  .topbar { min-height: 60px; align-items: flex-start; padding-top: 13px; padding-bottom: 13px; gap: 12px; }
+  .topbar { min-height: 88px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding-top: 13px; padding-bottom: 13px; gap: 10px 12px; }
+  .topbar > .collaboration-logo { grid-column: 1; grid-row: 1; }
+  .topbar > .topbar-actions { grid-column: 2; grid-row: 1; }
+  .topbar > .topbar-nav { grid-column: 1 / -1; grid-row: 2; }
   .topbar-nav { gap: 11px; }
   .topbar-nav a { font-size: 10px; }
   .collaboration-logo { gap: 5px; }
@@ -148,10 +148,8 @@ a { color: inherit; text-decoration: none; }
   .brand-times { font-size: 14px; }
   .collaboration-logo img { width: 92px; }
   .topbar-actions { gap: 7px; }
+  .github-mark { width: 16px; height: 16px; }
   .home-main { width: min(100% - 28px, 620px); padding-top: 30px; }
-  .launcher-heading { margin-bottom: 18px; }
-  .launcher-heading h1 { font-size: clamp(29px, 9vw, 42px); }
-  .launcher-heading p:last-child { font-size: 13px; }
   .home-player-frame { min-height: 205px; border-radius: 6px; }
   .url-form { grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 8px 10px; }
   .url-form .primary-button { grid-column: 1 / -1; width: 100%; }

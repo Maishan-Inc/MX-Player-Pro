@@ -6,6 +6,7 @@ import {
 import { activeCue, type SubtitleCue } from '../lib/srt'
 import { trackLabel } from '../lib/codec'
 import { WebCodecsEngine } from '../lib/webcodecs'
+import { explainPlaybackError } from '../lib/playback-error'
 import type { DemuxEvent, DemuxRequest, MKVPacket, ProbeInfo, SourceDescriptor, TrackInfo } from '../types'
 
 interface Props { source: SourceDescriptor; label: string; onExit: () => void }
@@ -123,7 +124,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
 
   function handleWorkerEvent(event: DemuxEvent) {
     if (event.type === 'progress') { setProgress(event.phase); return }
-    if (event.type === 'error') { setError(event.message); setProgress('读取失败'); return }
+    if (event.type === 'error') { setError(explainPlaybackError(event.message)); setProgress('读取失败'); return }
     if (event.type === 'metadata') {
       const tracks = event.metadata.tracks
       const video = tracks.find((track) => track.kind === 'video')
