@@ -1,0 +1,48 @@
+import { MatroskaParser } from './ebml'
+import { RangeLoader } from '../lib/range-loader'
+import { loadRustDemuxer } from './wasm-runtime'
+import type { DemuxEvent, DemuxRequest, TrackKind } from '../types'
+
+let parser: MatroskaParser | null = null
+
+function post(event: DemuxEvent) {
+  if (event.type === 'packets') {
+    const transfers = event.packets.map((packet) => packet.data.buffer)
+    self.postMessage(event, transfers)
+  } else self.postMessage(event)
+}
+
+self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
+  try {
+    if (message.data.type === 'init') {
+      const wasm = await loadRustDemuxer()
+      const loader = new RangeLoader(message.data.source)
+      parser = new MatroskaParser(loader, wasm)
+      post({ type: 'progress', phase: wasm.available ? '加载 Rust WASM 解封装器' : '加载本地解封装器', value: 0.08 })
+      post({ type: 'progress', phase: '读取 Matroska 头部', value: 0.1 })
+      const metadata = await parser.init()
+      post({ type: 'metadata', metadata, probe: loader.probeInfo })
+      post({ type: 'progress', phase: '解析首个 Cluster', value: 0.35 })
+      const packets = await parser.packetsFor(0)
+      post({ type: 'packets', packets })
+      return
+    }
+    if (!parser) throw new Error('DEMUX_NOT_INITIALIZED')
+    if (message.data.type === 'seek') {
+      post({ type: 'progress', phase: '定位关键帧', value: 0.2 })
+      post({ type: 'packets', packets: await parser.packetsFor(message.data.time) })
+    } else if (message.data.type === 'next') {
+      const packets = await parser.next()
+      if (packets.length) post({ type: 'packets', packets })
+      else post({ type: 'eof' })
+    } else if (message.data.type === 'select-track') {
+      parser.select(message.data.kind as TrackKind, message.data.trackId)
+      post({ type: 'packets', packets: await parser.packetsFor(0) })
+    } else if (message.data.type === 'close') {
+      parser = null
+      post({ type: 'eof' })
+    }
+  } catch (error) {
+    post({ type: 'error', code: error instanceof Error ? error.message.split(':')[0] : 'DEMUX_ERROR', message: error instanceof Error ? error.message : 'Matroska 解析失败' })
+  }
+}

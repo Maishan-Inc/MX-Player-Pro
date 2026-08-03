@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vite/
+target/
+*.wasm
+*.wasm.map
+*.log
+.DS_Store
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+public/wasm/

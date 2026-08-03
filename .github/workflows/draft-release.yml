@@ -1,0 +1,47 @@
+name: Draft Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing or new release tag
+        required: false
+        default: ''
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.15.0 --locked
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:wasm
+        env:
+          REQUIRE_WASM: '1'
+      - run: pnpm build
+      - name: Package static build
+        run: tar -czf mx-player-pro-${GITHUB_SHA::7}.tar.gz dist
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          if [ -z "$TAG" ] || [ "$TAG" = "master" ] || [ "$TAG" = "main" ]; then TAG="v0.1.0-${GITHUB_SHA::7}"; fi
+          gh release create "$TAG" "mx-player-pro-${GITHUB_SHA::7}.tar.gz" --draft --generate-notes --target "$GITHUB_SHA" --title "MX Player Pro $TAG"
