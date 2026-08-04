@@ -1,7 +1,7 @@
 import { codecForTrack } from '../lib/codec'
 import { parseBlock } from './ebml-block'
 import {
-  element, firstElement, firstElementAllowTruncated, floatValue, text, unsigned, walk, copyBytes, type Element,
+  element, firstElementAllowTruncated, floatValue, text, unsigned, walk, copyBytes, type Element,
 } from './ebml-elements'
 import type { MKVPacket, PlaybackMetadata, ProbeInfo, TrackInfo, TrackKind } from '../types'
 import type { RustDemuxerRuntime } from './wasm-runtime'
@@ -126,7 +126,7 @@ export class MatroskaParser {
         if (bytes.length >= total) throw new Error('MKV_SEGMENT_NOT_FOUND')
         continue
       }
-      sawTracks = Boolean(firstElement(bytes, segment.data, Math.min(segment.end, bytes.length), ID.tracks))
+      sawTracks = Boolean(firstElementAllowTruncated(bytes, segment.data, Math.min(segment.end, bytes.length), ID.tracks)?.truncated === false)
       if (sawTracks || bytes.length >= total) break
     }
     if (!segment) throw new Error('MKV_SEGMENT_NOT_FOUND')
@@ -158,12 +158,6 @@ export class MatroskaParser {
       else if (item.id === ID.seekHead) seekHead = item
     })
 
-    const firstCluster = this.findFirstClusterOffset(bytes, segment)
-    if (firstCluster < 0) throw new Error('MKV_NO_CLUSTER')
-    this.firstClusterOffset = firstCluster
-    this.cursor = firstCluster
-    this.atEnd = false
-
     if (!tracks.length) throw new Error('MKV_TRACKS_NOT_FOUND')
     this.defaultDurations = new Map(
       tracks.filter((track) => track.defaultDurationNs).map((track) => [track.id, track.defaultDurationNs as number]),
@@ -180,21 +174,51 @@ export class MatroskaParser {
     if (cuesElement) this.parseCues(bytes, cuesElement, scale)
     else if (seekHead) await this.loadCuesViaSeekHead(bytes, seekHead, scale)
 
+    // Locating the first Cluster may have to read past the header window, so it runs
+    // after metadata exists (it opportunistically parses a Cues it steps over).
+    const firstCluster = await this.locateFirstCluster(bytes, segment)
+    if (firstCluster < 0) throw new Error('MKV_NO_CLUSTER')
+    this.firstClusterOffset = firstCluster
+    this.cursor = firstCluster
+    this.atEnd = false
+
     return this.metadata
   }
 
-  private findFirstClusterOffset(bytes: Uint8Array, segment: Element): number {
-    let found = -1
+  /**
+   * Find the first Cluster by following top-level declared sizes, reading forward as
+   * needed. Elements between Tracks and the first Cluster are routinely larger than
+   * the header window — Attachments carrying subtitle fonts or cover art especially —
+   * and skipping one only requires its declared size, not its contents.
+   */
+  private async locateFirstCluster(headerBytes: Uint8Array<ArrayBuffer>, segment: Element): Promise<number> {
+    let bytes: Uint8Array<ArrayBuffer> = headerBytes
+    let base = 0
     let offset = segment.data
-    const limit = Math.min(segment.end, bytes.length)
-    while (offset < limit && found < 0) {
-      const item = element(bytes, offset)
-      if (!item) break
-      if (item.id === ID.cluster) { found = offset; break }
-      if (item.truncated || item.unknownSize) break
-      offset = item.end
+    let guard = 0
+
+    while (offset < this.segmentEnd && guard < 4096) {
+      guard += 1
+      // Re-window whenever the next element header is not fully in the buffer.
+      if (offset < base || offset - base + 16 > bytes.length) {
+        const window = await this.loader.readWindow(offset, CLUSTER_PROBE)
+        bytes = window.bytes
+        base = window.base
+        if (offset - base >= bytes.length) return -1
+      }
+      const item = element(bytes, offset - base)
+      if (!item) return -1
+      if (item.id === ID.cluster) return offset
+      // An unknown-size non-Cluster element cannot be stepped over safely.
+      if (item.unknownSize) return -1
+      if (item.id === ID.cues && !this.cues.length && !item.truncated) {
+        this.parseCues(bytes, item, this.metadata?.timecodeScale ?? 1_000_000)
+      }
+      const next = base + item.end
+      if (next <= offset) return -1
+      offset = next
     }
-    return found
+    return -1
   }
 
   private async loadCuesViaSeekHead(bytes: Uint8Array, seekHead: Element, scale: number): Promise<void> {
