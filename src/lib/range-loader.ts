@@ -1,7 +1,7 @@
 import type { ProbeInfo, SourceDescriptor } from '../types'
 
 const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024
-const MAX_CACHE_ENTRIES = 6
+const MAX_CACHE_ENTRIES = 3
 
 export class RangeLoader {
   private readonly source: SourceDescriptor
@@ -92,6 +92,21 @@ export class RangeLoader {
 
   async readChunk(offset: number): Promise<Uint8Array> {
     return this.read(offset, this.chunkSize)
+  }
+
+  /**
+   * Read a chunk-aligned window covering at least `minLength` bytes from `offset`.
+   * Aligning the base lets consecutive clusters inside one window share a cache key
+   * instead of missing on every arbitrary cluster offset. When the request spans past
+   * the aligned window, one merged read covers the whole extent rather than two.
+   */
+  async readWindow(offset: number, minLength: number): Promise<{ bytes: Uint8Array; base: number }> {
+    if (offset < 0 || minLength <= 0) throw new Error('READ_RANGE_INVALID')
+    const base = Math.floor(offset / this.chunkSize) * this.chunkSize
+    const needed = offset - base + minLength
+    const length = Math.max(this.chunkSize, needed)
+    const bytes = await this.read(base, length)
+    return { bytes, base }
   }
 
   private async readRemote(offset: number, length: number): Promise<Uint8Array> {

@@ -13,10 +13,12 @@ function post(event: DemuxEvent) {
 }
 
 self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
+  const request = message.data
+  const epoch = 'epoch' in request ? request.epoch : 0
   try {
-    if (message.data.type === 'init') {
+    if (request.type === 'init') {
       const wasm = await loadRustDemuxer()
-      const loader = new RangeLoader(message.data.source)
+      const loader = new RangeLoader(request.source)
       parser = new MatroskaParser(loader, wasm)
       post({ type: 'progress', phase: wasm.available ? '加载 Rust WASM 解封装器' : '加载本地解封装器', value: 0.08 })
       post({ type: 'progress', phase: '读取 Matroska 头部', value: 0.1 })
@@ -24,23 +26,24 @@ self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
       post({ type: 'metadata', metadata, probe: loader.probeInfo })
       post({ type: 'progress', phase: '解析首个 Cluster', value: 0.35 })
       const packets = await parser.packetsFor(0)
-      post({ type: 'packets', packets })
+      post({ type: 'packets', packets, epoch: 0 })
       return
     }
     if (!parser) throw new Error('DEMUX_NOT_INITIALIZED')
-    if (message.data.type === 'seek') {
+    if (request.type === 'seek') {
       post({ type: 'progress', phase: '定位关键帧', value: 0.2 })
-      post({ type: 'packets', packets: await parser.packetsFor(message.data.time) })
-    } else if (message.data.type === 'next') {
+      post({ type: 'packets', packets: await parser.packetsFor(request.time), epoch })
+    } else if (request.type === 'next') {
       const packets = await parser.next()
-      if (packets.length) post({ type: 'packets', packets })
-      else post({ type: 'eof' })
-    } else if (message.data.type === 'select-track') {
-      parser.select(message.data.kind as TrackKind, message.data.trackId)
-      post({ type: 'packets', packets: await parser.packetsFor(0) })
-    } else if (message.data.type === 'close') {
+      if (packets.length) post({ type: 'packets', packets, epoch })
+      else post({ type: 'eof', epoch })
+    } else if (request.type === 'select-track') {
+      // Re-demux at the current playback position; restarting from 0 would rewind.
+      parser.select(request.kind as TrackKind, request.trackId)
+      post({ type: 'packets', packets: await parser.packetsFor(request.time), epoch })
+    } else if (request.type === 'close') {
       parser = null
-      post({ type: 'eof' })
+      post({ type: 'eof', epoch })
     }
   } catch (error) {
     post({ type: 'error', code: error instanceof Error ? error.message.split(':')[0] : 'DEMUX_ERROR', message: error instanceof Error ? error.message : 'Matroska 解析失败' })

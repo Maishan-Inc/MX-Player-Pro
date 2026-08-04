@@ -19,7 +19,9 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const workerRef = useRef<Worker | null>(null)
   const engineRef = useRef<WebCodecsEngine | null>(null)
-  const clockRef = useRef({ value: 0, anchor: 0 })
+  const epochRef = useRef(0)
+  const inFlightRef = useRef(false)
+  const eofRef = useRef(false)
   const clickTimerRef = useRef<number | null>(null)
   const controlsTimerRef = useRef<number | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
@@ -53,8 +55,8 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const audioTrackRef = useRef<number | undefined>(undefined)
   const subtitleTrackRef = useRef<number | null>(null)
   const eventHandlerRef = useRef<(event: DemuxEvent) => void>(() => undefined)
+  const pumpRef = useRef<() => void>(() => undefined)
   const durationRef = useRef(0)
-  const rateRef = useRef(1)
 
   const videoTracks = metadata?.tracks.filter((track) => track.kind === 'video') || []
   const audioTracks = metadata?.tracks.filter((track) => track.kind === 'audio') || []
@@ -69,25 +71,32 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   audioTrackRef.current = audioTrackId
   subtitleTrackRef.current = subtitleTrackId
   durationRef.current = duration
-  rateRef.current = rate
   eventHandlerRef.current = handleWorkerEvent
+  pumpRef.current = pump
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const worker = new Worker(new URL('../worker/demux.worker.ts', import.meta.url), { type: 'module' })
     const engine = new WebCodecsEngine(canvas, (status) => {
-      setEngineStatus(status.error || `${status.videoReady ? '视频' : '视频不可用'}${status.audioReady ? ' · 音频' : ' · 音频不可用'}`)
-      if (status.error) setError(status.error)
+      setEngineStatus(status.error ? explainPlaybackError(status.error) : `${status.videoReady ? '视频' : '视频不可用'}${status.audioReady ? ' · 音频' : ' · 音频不可用'}`)
+      // Only a dead video pipeline is a fatal, overlay-worthy error; audio-only
+      // failures leave the file watchable.
+      if (status.error && !/^DECODER_(?:ERROR|UNSUPPORTED)_AUDIO/i.test(status.error)) setError(explainPlaybackError(status.error))
     })
     workerRef.current = worker
     engineRef.current = engine
+    epochRef.current = 0
+    inFlightRef.current = false
+    eofRef.current = false
     worker.onmessage = (event: MessageEvent<DemuxEvent>) => eventHandlerRef.current(event.data)
     worker.postMessage({ type: 'init', source } satisfies DemuxRequest)
     const timer = window.setInterval(() => {
-      if (!playingRef.current) return
-      const value = clockRef.current.value + (performance.now() / 1000 - clockRef.current.anchor) * rateRef.current
-      setCurrentTime(Math.min(value, durationRef.current || value))
+      // The engine clock is the single source of truth; a paused clock reports a
+      // frozen value, which is exactly what should be displayed.
+      const value = engineRef.current?.currentTime ?? 0
+      setCurrentTime(durationRef.current ? Math.min(value, durationRef.current) : value)
+      pumpRef.current()
     }, 100)
     return () => {
       window.clearInterval(timer)
@@ -122,6 +131,13 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current)
   }, [])
 
+  function pump() {
+    if (inFlightRef.current || eofRef.current) return
+    if (!engineRef.current?.needsPackets(playingRef.current, eofRef.current, inFlightRef.current)) return
+    inFlightRef.current = true
+    workerRef.current?.postMessage({ type: 'next', epoch: epochRef.current } satisfies DemuxRequest)
+  }
+
   function handleWorkerEvent(event: DemuxEvent) {
     if (event.type === 'progress') { setProgress(event.phase); return }
     if (event.type === 'error') { setError(explainPlaybackError(event.message)); setProgress('读取失败'); return }
@@ -145,11 +161,20 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       return
     }
     if (event.type === 'packets') {
+      // Discard replies that predate a seek; they belong to a superseded position.
+      if (event.epoch < epochRef.current) return
+      inFlightRef.current = false
       event.packets.forEach((packet) => handlePacket(packet))
-      workerRef.current?.postMessage({ type: 'next' } satisfies DemuxRequest)
+      pump()
       return
     }
-    if (event.type === 'eof') setProgress('已到达缓存末端')
+    if (event.type === 'eof') {
+      if (event.epoch < epochRef.current) return
+      inFlightRef.current = false
+      eofRef.current = true
+      void engineRef.current?.finish()
+      setProgress('已到达缓存末端')
+    }
   }
 
   function handlePacket(packet: MKVPacket) {
@@ -172,10 +197,9 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     setPlaying(nextPlaying)
     playingRef.current = nextPlaying
     if (nextPlaying) {
-      clockRef.current.anchor = performance.now() / 1000
       engineRef.current?.play()
+      pump()
     } else {
-      clockRef.current.value = currentTime
       engineRef.current?.pause()
     }
     showControls()
@@ -183,11 +207,14 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
 
   function seek(value: number) {
     const next = Math.max(0, Math.min(value, duration || value))
-    clockRef.current = { value: next, anchor: performance.now() / 1000 }
     setCurrentTime(next)
     setSubtitleCues([])
-    engineRef.current?.reset()
-    workerRef.current?.postMessage({ type: 'seek', time: next } satisfies DemuxRequest)
+    epochRef.current += 1
+    eofRef.current = false
+    inFlightRef.current = false
+    engineRef.current?.seekTo(next)
+    workerRef.current?.postMessage({ type: 'seek', time: next, epoch: epochRef.current } satisfies DemuxRequest)
+    inFlightRef.current = true
     showControls()
   }
 
@@ -202,7 +229,18 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       setSubtitleCues([])
       setShowSubtitleMenu(false)
     }
-    if (id !== null) workerRef.current?.postMessage({ type: 'select-track', kind, trackId: id } satisfies DemuxRequest)
+    if (id === null) return
+    if (kind === 'audio') {
+      // Re-demux from the current position rather than restarting the file.
+      const time = engineRef.current?.currentTime ?? 0
+      epochRef.current += 1
+      eofRef.current = false
+      engineRef.current?.seekTo(time)
+      workerRef.current?.postMessage({ type: 'select-track', kind, trackId: id, time, epoch: epochRef.current } satisfies DemuxRequest)
+      inFlightRef.current = true
+    } else {
+      workerRef.current?.postMessage({ type: 'select-track', kind, trackId: id, time: engineRef.current?.currentTime ?? 0, epoch: epochRef.current } satisfies DemuxRequest)
+    }
   }
 
   function toggleFullscreen() {

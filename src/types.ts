@@ -17,6 +17,8 @@ export interface TrackInfo {
   frameRate?: number
   sampleRate?: number
   channels?: number
+  /** DefaultDuration is stored in nanoseconds and is not scaled by TimecodeScale. */
+  defaultDurationNs?: number
 }
 
 export interface MKVPacket {
@@ -44,14 +46,14 @@ export interface PlaybackMetadata {
 
 export type DemuxRequest =
   | { type: 'init'; source: SourceDescriptor }
-  | { type: 'next' }
-  | { type: 'seek'; time: number }
-  | { type: 'select-track'; kind: TrackKind; trackId: number }
+  | { type: 'next'; epoch: number }
+  | { type: 'seek'; time: number; epoch: number }
+  | { type: 'select-track'; kind: TrackKind; trackId: number; time: number; epoch: number }
   | { type: 'close' }
 
 export type DemuxEvent =
   | { type: 'metadata'; metadata: PlaybackMetadata; probe: ProbeInfo }
-  | { type: 'packets'; packets: MKVPacket[] }
+  | { type: 'packets'; packets: MKVPacket[]; epoch: number }
   | { type: 'progress'; phase: string; value: number }
   | { type: 'error'; code: string; message: string }
-  | { type: 'eof' }
+  | { type: 'eof'; epoch: number }
