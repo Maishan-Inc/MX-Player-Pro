@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { codecForTrack, trackLabel } from './codec'
+import { codecForTrack, isAssSubtitle, isTextSubtitle, trackLabel } from './codec'
 
 describe('codec mapping', () => {
   it('derives avc1 from AVC CodecPrivate', () => {
@@ -11,5 +11,28 @@ describe('codec mapping', () => {
   it('maps AAC and subtitle tracks', () => {
     expect(codecForTrack({ id: 2, kind: 'audio', codecId: 'A_AAC' })).toBe('mp4a.40.2')
     expect(codecForTrack({ id: 3, kind: 'subtitle', codecId: 'S_TEXT/UTF8' })).toBeNull()
+  })
+})
+
+describe('subtitle track classification', () => {
+  const subtitle = (codecId: string) => ({ id: 4, kind: 'subtitle' as const, codecId })
+
+  // Anime releases ship ASS almost exclusively; only allowing S_TEXT/UTF8 hid the
+  // track from the menu entirely.
+  it('accepts SRT and ASS/SSA as renderable text', () => {
+    expect(isTextSubtitle(subtitle('S_TEXT/UTF8'))).toBe(true)
+    expect(isTextSubtitle(subtitle('S_TEXT/ASS'))).toBe(true)
+    expect(isTextSubtitle(subtitle('S_TEXT/SSA'))).toBe(true)
+    expect(isTextSubtitle(subtitle('s_text/ass'))).toBe(true)
+  })
+
+  it('rejects bitmap subtitle tracks', () => {
+    expect(isTextSubtitle(subtitle('S_HDMV/PGS'))).toBe(false)
+    expect(isTextSubtitle(subtitle('S_VOBSUB'))).toBe(false)
+  })
+
+  it('distinguishes ASS from SRT so the right parser runs', () => {
+    expect(isAssSubtitle(subtitle('S_TEXT/ASS'))).toBe(true)
+    expect(isAssSubtitle(subtitle('S_TEXT/UTF8'))).toBe(false)
   })
 })

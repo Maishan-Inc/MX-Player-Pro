@@ -3,8 +3,8 @@ import {
   ArrowLeft, BarChart3, Captions, Info, Maximize2, Minimize2,
   Pause, Play, RectangleHorizontal, RefreshCw, Settings, Volume2, VolumeX, X,
 } from 'lucide-react'
-import { activeCue, type SubtitleCue } from '../lib/srt'
-import { trackLabel } from '../lib/codec'
+import { activeCue, parseAssBlock, stripAssMarkup, type SubtitleCue } from '../lib/srt'
+import { isAssSubtitle, isTextSubtitle, trackLabel } from '../lib/codec'
 import { WebCodecsEngine } from '../lib/webcodecs'
 import { explainPlaybackError } from '../lib/playback-error'
 import type { DemuxEvent, DemuxRequest, MKVPacket, ProbeInfo, SourceDescriptor, TrackInfo } from '../types'
@@ -55,6 +55,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const videoTrackRef = useRef<number | undefined>(undefined)
   const audioTrackRef = useRef<number | undefined>(undefined)
   const subtitleTrackRef = useRef<number | null>(null)
+  const subtitleIsAssRef = useRef(false)
   const eventHandlerRef = useRef<(event: DemuxEvent) => void>(() => undefined)
   const pumpRef = useRef<() => void>(() => undefined)
   const durationRef = useRef(0)
@@ -62,7 +63,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const videoTracks = metadata?.tracks.filter((track) => track.kind === 'video') || []
   const audioTracks = metadata?.tracks.filter((track) => track.kind === 'audio') || []
   const allSubtitleTracks = metadata?.tracks.filter((track) => track.kind === 'subtitle') || []
-  const subtitleTracks = allSubtitleTracks.filter((track) => track.codecId.toUpperCase() === 'S_TEXT/UTF8')
+  const subtitleTracks = allSubtitleTracks.filter(isTextSubtitle)
   const cue = subtitleEnabled ? activeCue(subtitleCues, currentTime) : null
   const duration = metadata?.duration || 0
   const selectedSubtitle = subtitleTracks.find((track) => track.id === subtitleTrackId)
@@ -71,6 +72,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   videoTrackRef.current = videoTrackId
   audioTrackRef.current = audioTrackId
   subtitleTrackRef.current = subtitleTrackId
+  subtitleIsAssRef.current = Boolean(selectedSubtitle && isAssSubtitle(selectedSubtitle))
   durationRef.current = duration
   eventHandlerRef.current = handleWorkerEvent
   pumpRef.current = pump
@@ -185,13 +187,20 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
 
   function handlePacket(packet: MKVPacket) {
     if (packet.trackId === subtitleTrackRef.current) {
-      const text = new TextDecoder().decode(packet.data).trim()
+      const raw = new TextDecoder().decode(packet.data)
+      const text = subtitleIsAssRef.current ? parseAssBlock(raw) : stripAssMarkup(raw.trim())
       if (text) {
-        setSubtitleCues((cues) => [...cues, {
-          start: packet.timestamp / 1_000_000,
-          end: packet.timestamp / 1_000_000 + Math.max(packet.duration / 1_000_000, 3),
-          text: cleanSubtitleText(text),
-        }])
+        const start = packet.timestamp / 1_000_000
+        // BlockDuration is authoritative now that it is parsed; the fallback only
+        // applies to muxers that omit it.
+        const end = start + (packet.duration > 0 ? packet.duration / 1_000_000 : 3)
+        setSubtitleCues((cues) => {
+          if (cues.some((cue) => cue.start === start && cue.text === text)) return cues
+          const next = [...cues, { start, end, text }]
+          next.sort((left, right) => left.start - right.start)
+          // Cues accumulate for the whole session otherwise; keep a bounded window.
+          return next.length > 600 ? next.slice(next.length - 600) : next
+        })
       }
       return
     }
@@ -231,22 +240,23 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     } else {
       setSubtitleTrackId(id)
       subtitleTrackRef.current = id
+      const track = allSubtitleTracks.find((candidate) => candidate.id === id)
+      subtitleIsAssRef.current = Boolean(track && isAssSubtitle(track))
       setSubtitleEnabled(id !== null)
       setSubtitleCues([])
       setShowSubtitleMenu(false)
     }
     if (id === null) return
-    if (kind === 'audio') {
-      // Re-demux from the current position rather than restarting the file.
-      const time = engineRef.current?.currentTime ?? 0
-      epochRef.current += 1
-      eofRef.current = false
-      engineRef.current?.seekTo(time)
-      workerRef.current?.postMessage({ type: 'select-track', kind, trackId: id, time, epoch: epochRef.current } satisfies DemuxRequest)
-      inFlightRef.current = true
-    } else {
-      workerRef.current?.postMessage({ type: 'select-track', kind, trackId: id, time: engineRef.current?.currentTime ?? 0, epoch: epochRef.current } satisfies DemuxRequest)
-    }
+    // A newly selected track only yields packets from clusters demuxed after the
+    // switch, so re-demux from the current position. Audio also needs the engine
+    // reset; for subtitles the video pipeline keeps running and the engine skips
+    // the replayed video packets by timestamp.
+    const time = engineRef.current?.currentTime ?? 0
+    epochRef.current += 1
+    eofRef.current = false
+    if (kind === 'audio') engineRef.current?.seekTo(time)
+    workerRef.current?.postMessage({ type: 'select-track', kind, trackId: id, time, epoch: epochRef.current } satisfies DemuxRequest)
+    inFlightRef.current = true
   }
 
   function toggleFullscreen() {
@@ -486,10 +496,6 @@ function isPlayerControl(target: EventTarget | null) {
 
 function subtitleLabel(track: TrackInfo) {
   return [track.language, track.name].filter(Boolean).join(' · ') || `字幕轨 ${track.id}`
-}
-
-function cleanSubtitleText(value: string) {
-  return value.replace(/^\{\\[^}]+\}/, '').replace(/<[^>]+>/g, '').trim()
 }
 
 function safeHostname(value: string) {

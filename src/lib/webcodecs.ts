@@ -180,6 +180,11 @@ export class WebCodecsEngine {
       // The decoder's first chunk after any reset must be a keyframe, otherwise it
       // raises DataError. Only correct keyframe flags make this gate meaningful.
       if (this.awaitingKeyframe && !packet.key) return
+      const timestamp = packet.timestamp / 1_000_000
+      // Selecting a subtitle track re-demuxes from the current position without
+      // resetting the video pipeline, so the same video packets arrive twice.
+      // Re-decoding them would queue duplicate, out-of-order frames.
+      if (!this.awaitingKeyframe && timestamp <= this.lastVideoTimestamp) return
       this.awaitingKeyframe = false
       try {
         this.videoDecoder.decode(new globals.EncodedVideoChunk({
@@ -188,7 +193,7 @@ export class WebCodecsEngine {
           duration: packet.duration || undefined,
           data: packet.data,
         }))
-        this.lastVideoTimestamp = Math.max(this.lastVideoTimestamp, packet.timestamp / 1_000_000)
+        this.lastVideoTimestamp = Math.max(this.lastVideoTimestamp, timestamp)
       } catch (error) {
         this.failVideo(error)
       }

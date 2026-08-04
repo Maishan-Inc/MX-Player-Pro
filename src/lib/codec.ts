@@ -21,3 +21,15 @@ export function trackLabel(track: TrackInfo): string {
   if (track.kind === 'audio') return `${track.codec || track.codecId} · ${track.channels || 2}ch${language}${name}`
   return `${track.codecId}${language}${name}`
 }
+
+/** Text subtitle codecs we can render. Bitmap tracks (PGS, VobSub) are excluded. */
+const TEXT_SUBTITLE_CODECS = new Set(['S_TEXT/UTF8', 'S_TEXT/ASCII', 'S_TEXT/ASS', 'S_TEXT/SSA', 'S_ASS', 'S_SSA'])
+
+export function isTextSubtitle(track: TrackInfo): boolean {
+  return track.kind === 'subtitle' && TEXT_SUBTITLE_CODECS.has(track.codecId.toUpperCase())
+}
+
+export function isAssSubtitle(track: TrackInfo): boolean {
+  const id = track.codecId.toUpperCase()
+  return id === 'S_TEXT/ASS' || id === 'S_TEXT/SSA' || id === 'S_ASS' || id === 'S_SSA'
+}
