@@ -22,6 +22,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const epochRef = useRef(0)
   const inFlightRef = useRef(false)
   const eofRef = useRef(false)
+  const readyRef = useRef(false)
   const clickTimerRef = useRef<number | null>(null)
   const controlsTimerRef = useRef<number | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
@@ -89,6 +90,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     epochRef.current = 0
     inFlightRef.current = false
     eofRef.current = false
+    readyRef.current = false
     worker.onmessage = (event: MessageEvent<DemuxEvent>) => eventHandlerRef.current(event.data)
     worker.postMessage({ type: 'init', source } satisfies DemuxRequest)
     const timer = window.setInterval(() => {
@@ -132,7 +134,8 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   }, [])
 
   function pump() {
-    if (inFlightRef.current || eofRef.current) return
+    // The worker cannot serve packets until init() has produced metadata.
+    if (!readyRef.current || inFlightRef.current || eofRef.current) return
     if (!engineRef.current?.needsPackets(playingRef.current, eofRef.current, inFlightRef.current)) return
     inFlightRef.current = true
     workerRef.current?.postMessage({ type: 'next', epoch: epochRef.current } satisfies DemuxRequest)
@@ -156,6 +159,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       setSubtitleEnabled(false)
       setSubtitleCues([])
       setProgress('轨道已识别')
+      readyRef.current = true
       void engineRef.current?.configure(video, audio)
       engineRef.current?.setVolume(muted ? 0 : volume)
       return
@@ -165,7 +169,9 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       if (event.epoch < epochRef.current) return
       inFlightRef.current = false
       event.packets.forEach((packet) => handlePacket(packet))
-      pump()
+      // An empty batch means the worker was not ready yet. The 100ms interval will
+      // retry, so do not pump straight back and spin.
+      if (event.packets.length) pump()
       return
     }
     if (event.type === 'eof') {

@@ -4,6 +4,7 @@ import { loadRustDemuxer } from './wasm-runtime'
 import type { DemuxEvent, DemuxRequest, TrackKind } from '../types'
 
 let parser: MatroskaParser | null = null
+let ready = false
 
 function post(event: DemuxEvent) {
   if (event.type === 'packets') {
@@ -17,6 +18,7 @@ self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
   const epoch = 'epoch' in request ? request.epoch : 0
   try {
     if (request.type === 'init') {
+      ready = false
       const wasm = await loadRustDemuxer()
       const loader = new RangeLoader(request.source)
       parser = new MatroskaParser(loader, wasm)
@@ -26,10 +28,19 @@ self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
       post({ type: 'metadata', metadata, probe: loader.probeInfo })
       post({ type: 'progress', phase: '解析首个 Cluster', value: 0.35 })
       const packets = await parser.packetsFor(0)
+      ready = true
       post({ type: 'packets', packets, epoch: 0 })
       return
     }
-    if (!parser) throw new Error('DEMUX_NOT_INITIALIZED')
+    // init() is asynchronous, so the main thread's fill loop can ask for packets
+    // before the parser exists. That is an ordinary race, not a fatal error: reply
+    // with an empty batch and let the caller ask again.
+    if (!parser || !ready) {
+      if (request.type === 'next' || request.type === 'seek' || request.type === 'select-track') {
+        post({ type: 'packets', packets: [], epoch })
+      }
+      return
+    }
     if (request.type === 'seek') {
       post({ type: 'progress', phase: '定位关键帧', value: 0.2 })
       post({ type: 'packets', packets: await parser.packetsFor(request.time), epoch })
@@ -43,6 +54,7 @@ self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
       post({ type: 'packets', packets: await parser.packetsFor(request.time), epoch })
     } else if (request.type === 'close') {
       parser = null
+      ready = false
       post({ type: 'eof', epoch })
     }
   } catch (error) {
