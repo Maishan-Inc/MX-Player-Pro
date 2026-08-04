@@ -56,7 +56,7 @@ function buildFile(options: {
   timecodeScale?: number
   extraBetween?: Uint8Array
   trailing?: Uint8Array
-} ): Uint8Array {
+} ): Uint8Array<ArrayBuffer> {
   const info = el(ID.info, concat(
     uintEl(ID.timecodeScale, options.timecodeScale ?? 1_000_000, 4),
     ...(options.durationTicks ? [floatEl(ID.duration, options.durationTicks)] : []),
