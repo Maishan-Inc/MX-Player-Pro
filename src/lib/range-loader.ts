@@ -99,7 +99,11 @@ export class RangeLoader {
     const first = Math.floor(offset / this.chunkSize)
     const last = Math.floor((offset + boundedLength - 1) / this.chunkSize)
     await this.ensureChunks(first, last)
-    if (this.fullBody) return this.fullBody.slice(offset, offset + boundedLength)
+    // ensureChunks may discover the server ignores Range and switch to a whole-body
+    // read. The annotation is load-bearing: the check above narrowed this.fullBody to
+    // null and the compiler cannot see that the await changed it.
+    const whole: Uint8Array<ArrayBuffer> | null = this.fullBody
+    if (whole) return whole.slice(offset, offset + boundedLength)
     this.prefetch(last + 1, last + PREFETCH_CHUNKS)
     return this.assemble(offset, boundedLength)
   }
