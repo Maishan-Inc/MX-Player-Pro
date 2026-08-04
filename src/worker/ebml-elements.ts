@@ -122,6 +122,6 @@ export function floatValue(bytes: Uint8Array, item: Element): number {
   return unsigned(bytes, item)
 }
 
-export function copyBytes(bytes: Uint8Array, item: Element): ArrayBuffer {
+export function copyBytes(bytes: Uint8Array<ArrayBuffer>, item: Element): ArrayBuffer {
   return bytes.slice(item.data, Math.min(item.end, bytes.length)).buffer
 }

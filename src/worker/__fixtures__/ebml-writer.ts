@@ -1,4 +1,4 @@
-export function concat(...parts: Array<Uint8Array | number[]>): Uint8Array {
+export function concat(...parts: Array<Uint8Array | number[]>): Uint8Array<ArrayBuffer> {
   const arrays = parts.map((part) => part instanceof Uint8Array ? part : new Uint8Array(part))
   const total = arrays.reduce((sum, part) => sum + part.length, 0)
   const result = new Uint8Array(total)
@@ -42,23 +42,23 @@ export function idBytes(id: number): Uint8Array {
   return bytes
 }
 
-export function el(id: number, payload: Uint8Array | number[]): Uint8Array {
+export function el(id: number, payload: Uint8Array | number[]): Uint8Array<ArrayBuffer> {
   const body = payload instanceof Uint8Array ? payload : new Uint8Array(payload)
   return concat(idBytes(id), vintBytes(body.length), body)
 }
 
 /** Emit an element whose declared size deliberately disagrees with its payload. */
-export function elWithDeclaredSize(id: number, payload: Uint8Array | number[], declaredSize: number): Uint8Array {
+export function elWithDeclaredSize(id: number, payload: Uint8Array | number[], declaredSize: number): Uint8Array<ArrayBuffer> {
   const body = payload instanceof Uint8Array ? payload : new Uint8Array(payload)
   return concat(idBytes(id), vintBytes(declaredSize), body)
 }
 
-export function elUnknownSize(id: number, payload: Uint8Array | number[]): Uint8Array {
+export function elUnknownSize(id: number, payload: Uint8Array | number[]): Uint8Array<ArrayBuffer> {
   const body = payload instanceof Uint8Array ? payload : new Uint8Array(payload)
   return concat(idBytes(id), vintBytes(0, { unknown: true }), body)
 }
 
-export function uintEl(id: number, value: number, width?: number): Uint8Array {
+export function uintEl(id: number, value: number, width?: number): Uint8Array<ArrayBuffer> {
   const length = width ?? Math.max(1, Math.ceil(Math.max(1, value).toString(16).length / 2))
   const bytes = new Uint8Array(length)
   let remaining = value
@@ -69,7 +69,7 @@ export function uintEl(id: number, value: number, width?: number): Uint8Array {
   return el(id, bytes)
 }
 
-export function floatEl(id: number, value: number, width: 4 | 8 = 8): Uint8Array {
+export function floatEl(id: number, value: number, width: 4 | 8 = 8): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(width)
   const view = new DataView(bytes.buffer)
   if (width === 4) view.setFloat32(0, value)
@@ -77,11 +77,11 @@ export function floatEl(id: number, value: number, width: 4 | 8 = 8): Uint8Array
   return el(id, bytes)
 }
 
-export function stringEl(id: number, value: string): Uint8Array {
+export function stringEl(id: number, value: string): Uint8Array<ArrayBuffer> {
   return el(id, new TextEncoder().encode(value))
 }
 
-function blockHeader(track: number, relativeTime: number, flags: number): Uint8Array {
+function blockHeader(track: number, relativeTime: number, flags: number): Uint8Array<ArrayBuffer> {
   const rel = relativeTime < 0 ? relativeTime + 0x10000 : relativeTime
   return concat(vintBytes(track), [(rel >> 8) & 0xff, rel & 0xff, flags])
 }
@@ -94,16 +94,16 @@ export const ID_BLOCK_DURATION = 0x9b
 export const ID_CLUSTER = 0x1f43b675
 export const ID_TIMECODE = 0xe7
 
-export function simpleBlock(track: number, relativeTime: number, flags: number, payload: Uint8Array | number[]): Uint8Array {
+export function simpleBlock(track: number, relativeTime: number, flags: number, payload: Uint8Array | number[]): Uint8Array<ArrayBuffer> {
   return el(ID_SIMPLE_BLOCK, concat(blockHeader(track, relativeTime, flags), payload))
 }
 
 /** Raw block body without the element wrapper, for direct parseBlock tests. */
-export function blockBody(track: number, relativeTime: number, flags: number, payload: Uint8Array | number[]): Uint8Array {
+export function blockBody(track: number, relativeTime: number, flags: number, payload: Uint8Array | number[]): Uint8Array<ArrayBuffer> {
   return concat(blockHeader(track, relativeTime, flags), payload)
 }
 
-export function xiphLacedBody(track: number, relativeTime: number, frames: Array<Uint8Array | number[]>): Uint8Array {
+export function xiphLacedBody(track: number, relativeTime: number, frames: Array<Uint8Array | number[]>): Uint8Array<ArrayBuffer> {
   const bodies = frames.map((frame) => frame instanceof Uint8Array ? frame : new Uint8Array(frame))
   const sizeBytes: number[] = []
   for (const body of bodies.slice(0, -1)) {
@@ -114,7 +114,7 @@ export function xiphLacedBody(track: number, relativeTime: number, frames: Array
   return concat(blockHeader(track, relativeTime, 0x02), [bodies.length - 1], sizeBytes, ...bodies)
 }
 
-export function fixedLacedBody(track: number, relativeTime: number, frames: Array<Uint8Array | number[]>): Uint8Array {
+export function fixedLacedBody(track: number, relativeTime: number, frames: Array<Uint8Array | number[]>): Uint8Array<ArrayBuffer> {
   const bodies = frames.map((frame) => frame instanceof Uint8Array ? frame : new Uint8Array(frame))
   return concat(blockHeader(track, relativeTime, 0x04), [bodies.length - 1], ...bodies)
 }
@@ -131,7 +131,7 @@ function signedVintBytes(value: number): Uint8Array {
   throw new Error('signed vint out of range')
 }
 
-export function ebmlLacedBody(track: number, relativeTime: number, frames: Array<Uint8Array | number[]>): Uint8Array {
+export function ebmlLacedBody(track: number, relativeTime: number, frames: Array<Uint8Array | number[]>): Uint8Array<ArrayBuffer> {
   const bodies = frames.map((frame) => frame instanceof Uint8Array ? frame : new Uint8Array(frame))
   const sizes: Uint8Array[] = [vintBytes(bodies[0].length)]
   for (let index = 1; index < bodies.length - 1; index += 1) {
@@ -140,6 +140,6 @@ export function ebmlLacedBody(track: number, relativeTime: number, frames: Array
   return concat(blockHeader(track, relativeTime, 0x06), [bodies.length - 1], ...sizes, ...bodies)
 }
 
-export function cluster(timecode: number, blocks: Uint8Array[]): Uint8Array {
+export function cluster(timecode: number, blocks: Uint8Array[]): Uint8Array<ArrayBuffer> {
   return el(ID_CLUSTER, concat(uintEl(ID_TIMECODE, timecode), ...blocks))
 }

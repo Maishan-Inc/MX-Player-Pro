@@ -6,13 +6,16 @@ import {
 import type { MKVPacket, PlaybackMetadata, ProbeInfo, TrackInfo, TrackKind } from '../types'
 import type { RustDemuxerRuntime } from './wasm-runtime'
 
+/**
+ * Reads are declared as ArrayBuffer-backed (never SharedArrayBuffer) so packet
+ * payloads sliced out of them satisfy BufferSource for the WebCodecs chunk types.
+ */
 export interface MediaReader {
   probe(): Promise<ProbeInfo>
-  read(offset: number, length: number): Promise<Uint8Array>
-  readWindow(offset: number, minLength: number): Promise<{ bytes: Uint8Array; base: number }>
+  read(offset: number, length: number): Promise<Uint8Array<ArrayBuffer>>
+  readWindow(offset: number, minLength: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; base: number }>
   readonly totalSize: number | null
 }
-
 interface CuePoint { time: number; offset: number; track: number }
 
 const ID = {
@@ -38,7 +41,7 @@ const HEADER_WINDOWS = [1024 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024]
 const CLUSTER_PROBE = 64 * 1024
 const MAX_UNBOUNDED_CLUSTER = 64 * 1024 * 1024
 
-function parseTrack(bytes: Uint8Array, item: Element): TrackInfo | null {
+function parseTrack(bytes: Uint8Array<ArrayBuffer>, item: Element): TrackInfo | null {
   let id = 0
   let type = 0
   let codecId = ''
@@ -106,7 +109,7 @@ export class MatroskaParser {
     if (probe.cors === 'blocked') throw new Error(`CORS_BLOCKED:${probe.message || ''}`)
 
     const total = probe.size ?? this.loader.totalSize ?? HEADER_WINDOWS[HEADER_WINDOWS.length - 1]
-    let bytes = new Uint8Array()
+    let bytes: Uint8Array<ArrayBuffer> = new Uint8Array()
     let segment: Element | null = null
     let sawTracks = false
 
@@ -369,7 +372,7 @@ export class MatroskaParser {
     }
   }
 
-  private parseClusterBody(bytes: Uint8Array, start: number, end: number, absoluteOffset: number): MKVPacket[] {
+  private parseClusterBody(bytes: Uint8Array<ArrayBuffer>, start: number, end: number, absoluteOffset: number): MKVPacket[] {
     const header = element(bytes, start)
     if (!header) return []
     let clusterTime = 0

@@ -19,13 +19,13 @@ const ID = {
 class FakeReader implements MediaReader {
   readonly calls: Array<{ offset: number; length: number }> = []
   windowCalls = 0
-  constructor(private readonly bytes: Uint8Array, private readonly chunkSize = 8 * 1024 * 1024) {}
+  constructor(private readonly bytes: Uint8Array<ArrayBuffer>, private readonly chunkSize = 8 * 1024 * 1024) {}
 
   async probe() {
     return { size: this.bytes.length, contentType: 'video/x-matroska', acceptsRanges: true, status: 200, cors: 'ok' as const }
   }
 
-  async read(offset: number, length: number): Promise<Uint8Array> {
+  async read(offset: number, length: number): Promise<Uint8Array<ArrayBuffer>> {
     this.calls.push({ offset, length })
     return this.bytes.slice(offset, offset + length)
   }

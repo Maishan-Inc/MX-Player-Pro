@@ -26,7 +26,13 @@ export interface MKVPacket {
   timestamp: number
   duration: number
   key: boolean
-  data: Uint8Array
+  /**
+   * Always backed by its own ArrayBuffer (never SharedArrayBuffer): every packet is
+   * produced by `bytes.slice()`, and the worker transfers each `data.buffer`
+   * individually. The explicit parameter is what makes it a valid BufferSource for
+   * EncodedVideoChunk / EncodedAudioChunk.
+   */
+  data: Uint8Array<ArrayBuffer>
 }
 
 export interface ProbeInfo {

@@ -55,7 +55,7 @@ function ebmlSizes(bytes: Uint8Array, start: number, end: number, count: number)
   return { sizes, offset }
 }
 
-export function parseBlock(bytes: Uint8Array, item: Element, context: BlockContext): MKVPacket[] {
+export function parseBlock(bytes: Uint8Array<ArrayBuffer>, item: Element, context: BlockContext): MKVPacket[] {
   const end = Math.min(item.end, bytes.length)
   if (end - item.data < 4) return []
   const trackVint = vint(bytes, item.data)
@@ -87,7 +87,7 @@ export function parseBlock(bytes: Uint8Array, item: Element, context: BlockConte
       timestamp: baseTimestamp,
       duration,
       key,
-      data: bytes.slice(payloadStart, end) as Uint8Array<ArrayBuffer>,
+      data: bytes.slice(payloadStart, end),
     }]
   }
 
@@ -132,7 +132,7 @@ export function parseBlock(bytes: Uint8Array, item: Element, context: BlockConte
       // Each packet must own a distinct ArrayBuffer: the worker puts every
       // packet.data.buffer into one postMessage transfer list, and duplicate or
       // overlapping buffers there throw DataCloneError.
-      data: bytes.slice(offset, offset + size) as Uint8Array<ArrayBuffer>,
+      data: bytes.slice(offset, offset + size),
     })
     offset += size
   }

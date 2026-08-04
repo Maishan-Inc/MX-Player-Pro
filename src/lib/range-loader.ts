@@ -6,11 +6,11 @@ const MAX_CACHE_ENTRIES = 3
 export class RangeLoader {
   private readonly source: SourceDescriptor
   private readonly chunkSize: number
-  private readonly cache = new Map<string, Uint8Array>()
+  private readonly cache = new Map<string, Uint8Array<ArrayBuffer>>()
   private size: number | null = null
   private contentType: string | null = null
   private rangeSupport = false
-  private fullBody: Uint8Array | null = null
+  private fullBody: Uint8Array<ArrayBuffer> | null = null
   private lastProbe: ProbeInfo = { size: null, contentType: null, acceptsRanges: false, status: null, cors: 'unknown' }
 
   constructor(source: SourceDescriptor, chunkSize = DEFAULT_CHUNK_SIZE) {
@@ -70,7 +70,7 @@ export class RangeLoader {
     }
   }
 
-  async read(offset: number, length: number): Promise<Uint8Array> {
+  async read(offset: number, length: number): Promise<Uint8Array<ArrayBuffer>> {
     if (offset < 0 || length <= 0) throw new Error('READ_RANGE_INVALID')
     const boundedLength = this.size === null ? length : Math.min(length, Math.max(0, this.size - offset))
     if (boundedLength <= 0) return new Uint8Array()
@@ -90,7 +90,7 @@ export class RangeLoader {
     return bytes
   }
 
-  async readChunk(offset: number): Promise<Uint8Array> {
+  async readChunk(offset: number): Promise<Uint8Array<ArrayBuffer>> {
     return this.read(offset, this.chunkSize)
   }
 
@@ -100,7 +100,7 @@ export class RangeLoader {
    * instead of missing on every arbitrary cluster offset. When the request spans past
    * the aligned window, one merged read covers the whole extent rather than two.
    */
-  async readWindow(offset: number, minLength: number): Promise<{ bytes: Uint8Array; base: number }> {
+  async readWindow(offset: number, minLength: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; base: number }> {
     if (offset < 0 || minLength <= 0) throw new Error('READ_RANGE_INVALID')
     const base = Math.floor(offset / this.chunkSize) * this.chunkSize
     const needed = offset - base + minLength
@@ -109,7 +109,7 @@ export class RangeLoader {
     return { bytes, base }
   }
 
-  private async readRemote(offset: number, length: number): Promise<Uint8Array> {
+  private async readRemote(offset: number, length: number): Promise<Uint8Array<ArrayBuffer>> {
     if (this.fullBody) return this.fullBody.slice(offset, offset + length)
     const end = offset + length - 1
     const response = await fetch(this.source.kind === 'url' ? this.source.url : '', {

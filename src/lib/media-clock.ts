@@ -109,7 +109,8 @@ export class AudioAnchoredClock implements MediaClock {
     this.hold = mediaTime
   }
 
-  setRate(): void { /* spans carry their own rate; scheduleAudio re-emits them */ }
+  /** Spans carry their own rate; scheduleAudio re-emits them after a rate change. */
+  setRate(_rate: number): void { /* no anchor to adjust */ }
 
   get scheduledUntil(): number {
     return this.spans.reduce((max, span) => Math.max(max, span.endAt), 0)
