@@ -1,12 +1,27 @@
 import type { ProbeInfo, SourceDescriptor } from '../types'
 
-const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024
-const MAX_CACHE_ENTRIES = 3
+/**
+ * Chunk size is deliberately small. Reads are cached per aligned chunk and missing
+ * runs are coalesced into one request, so a small chunk costs nothing in round trips
+ * but keeps time-to-first-frame short: an 8 MB window had to land in full before the
+ * first cluster could be parsed.
+ */
+const DEFAULT_CHUNK_SIZE = 1024 * 1024
+const MAX_CACHE_BYTES = 128 * 1024 * 1024
+/** Chunks fetched in the background after a read, so the demuxer rarely waits. */
+const PREFETCH_CHUNKS = 4
+/** A server that ignores Range forces the whole body into memory; refuse the absurd. */
+const MAX_FULL_BODY_BYTES = 512 * 1024 * 1024
+const RETRY_DELAY_MS = 200
 
 export class RangeLoader {
   private readonly source: SourceDescriptor
   private readonly chunkSize: number
-  private readonly cache = new Map<string, Uint8Array<ArrayBuffer>>()
+  /** Aligned chunk index -> bytes. Insertion order doubles as LRU order. */
+  private readonly chunks = new Map<number, Uint8Array<ArrayBuffer>>()
+  private readonly inflight = new Map<number, Promise<void>>()
+  private cachedBytes = 0
+  private downloadedBytes = 0
   private size: number | null = null
   private contentType: string | null = null
   private rangeSupport = false
@@ -74,20 +89,19 @@ export class RangeLoader {
     if (offset < 0 || length <= 0) throw new Error('READ_RANGE_INVALID')
     const boundedLength = this.size === null ? length : Math.min(length, Math.max(0, this.size - offset))
     if (boundedLength <= 0) return new Uint8Array()
-    const key = `${offset}:${boundedLength}`
-    const cached = this.cache.get(key)
-    if (cached) return cached
 
-    const bytes = this.source.kind === 'file'
-      ? new Uint8Array(await this.source.file.slice(offset, offset + boundedLength).arrayBuffer())
-      : await this.readRemote(offset, boundedLength)
-    this.cache.set(key, bytes)
-    while (this.cache.size > MAX_CACHE_ENTRIES) {
-      const oldest = this.cache.keys().next().value
-      if (oldest) this.cache.delete(oldest)
-      else break
+    if (this.source.kind === 'file') {
+      // Slicing a File is effectively free, so it needs no cache of its own.
+      return new Uint8Array(await this.source.file.slice(offset, offset + boundedLength).arrayBuffer())
     }
-    return bytes
+    if (this.fullBody) return this.fullBody.slice(offset, offset + boundedLength)
+
+    const first = Math.floor(offset / this.chunkSize)
+    const last = Math.floor((offset + boundedLength - 1) / this.chunkSize)
+    await this.ensureChunks(first, last)
+    if (this.fullBody) return this.fullBody.slice(offset, offset + boundedLength)
+    this.prefetch(last + 1, last + PREFETCH_CHUNKS)
+    return this.assemble(offset, boundedLength)
   }
 
   async readChunk(offset: number): Promise<Uint8Array<ArrayBuffer>> {
@@ -95,13 +109,18 @@ export class RangeLoader {
   }
 
   /**
-   * Read a chunk-aligned window covering at least `minLength` bytes from `offset`.
-   * Aligning the base lets consecutive clusters inside one window share a cache key
-   * instead of missing on every arbitrary cluster offset. When the request spans past
-   * the aligned window, one merged read covers the whole extent rather than two.
+   * Read a window covering at least `minLength` bytes from `offset`.
+   *
+   * For remote sources the base is chunk-aligned so consecutive clusters land inside
+   * the same cached chunks. Because the cache is keyed per chunk rather than per
+   * (offset, length) pair, a cluster that straddles the end of a window now fetches
+   * only the one extra chunk instead of re-downloading the entire window.
    */
   async readWindow(offset: number, minLength: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; base: number }> {
     if (offset < 0 || minLength <= 0) throw new Error('READ_RANGE_INVALID')
+    if (this.source.kind === 'file') {
+      return { bytes: await this.read(offset, minLength), base: offset }
+    }
     const base = Math.floor(offset / this.chunkSize) * this.chunkSize
     const needed = offset - base + minLength
     const length = Math.max(this.chunkSize, needed)
@@ -109,27 +128,83 @@ export class RangeLoader {
     return { bytes, base }
   }
 
-  private async readRemote(offset: number, length: number): Promise<Uint8Array<ArrayBuffer>> {
-    if (this.fullBody) return this.fullBody.slice(offset, offset + length)
-    const end = offset + length - 1
-    const response = await fetch(this.source.kind === 'url' ? this.source.url : '', {
-      headers: { Range: `bytes=${offset}-${end}` },
-      redirect: 'follow',
+  /** Fetch every missing chunk in the range, coalescing consecutive gaps. */
+  private async ensureChunks(first: number, last: number): Promise<void> {
+    const waits: Array<Promise<void>> = []
+    let runStart = -1
+    for (let index = first; index <= last + 1; index += 1) {
+      const missing = index <= last && !this.chunks.has(index) && !this.inflight.has(index)
+      if (missing && runStart < 0) runStart = index
+      if (!missing && runStart >= 0) {
+        waits.push(this.startRun(runStart, index - 1))
+        runStart = -1
+      }
+      const pending = index <= last ? this.inflight.get(index) : undefined
+      if (pending) waits.push(pending)
+    }
+    if (waits.length) await Promise.all(waits)
+  }
+
+  private startRun(first: number, last: number): Promise<void> {
+    const run = this.fetchRun(first, last).finally(() => {
+      for (let index = first; index <= last; index += 1) {
+        if (this.inflight.get(index) === run) this.inflight.delete(index)
+      }
     })
+    for (let index = first; index <= last; index += 1) this.inflight.set(index, run)
+    return run
+  }
+
+  /** Warm the chunks after a read without blocking it. */
+  private prefetch(first: number, last: number): void {
+    if (this.fullBody || this.size === null) return
+    const ceiling = Math.floor(Math.max(0, this.size - 1) / this.chunkSize)
+    const end = Math.min(last, ceiling)
+    for (let index = first; index <= end; index += 1) {
+      if (this.chunks.has(index) || this.inflight.has(index)) continue
+      let runEnd = index
+      while (runEnd + 1 <= end && !this.chunks.has(runEnd + 1) && !this.inflight.has(runEnd + 1)) runEnd += 1
+      void this.startRun(index, runEnd).catch(() => undefined)
+      index = runEnd
+    }
+  }
+
+  private async fetchRun(first: number, last: number): Promise<void> {
+    const offset = first * this.chunkSize
+    const requestedEnd = (last + 1) * this.chunkSize - 1
+    const end = this.size === null ? requestedEnd : Math.min(requestedEnd, this.size - 1)
+    if (end < offset) return
+
+    const response = await this.fetchWithRetry({ Range: `bytes=${offset}-${end}` })
+    if (response.status === 416) {
+      // Past the end of the representation: treat it as the real EOF.
+      if (this.size === null || this.size > offset) this.size = offset
+      return
+    }
     if (!response.ok) throw new Error(`RANGE_HTTP_${response.status}`)
-    const bytes = new Uint8Array(await response.arrayBuffer())
+    const bytes = new Uint8Array(await response.arrayBuffer()) as Uint8Array<ArrayBuffer>
+    this.downloadedBytes += bytes.byteLength
+
     if (response.status === 206) {
       this.updateFromResponse(response)
-      return bytes
+      if (!bytes.byteLength) {
+        if (this.size === null || this.size > offset) this.size = offset
+        return
+      }
+      this.storeChunks(offset, bytes)
+      return
     }
 
     // Some download servers ignore Range and return the whole representation.
     // Keep it once, then serve all later offset reads locally.
     if (response.status === 200) {
+      if (bytes.byteLength > MAX_FULL_BODY_BYTES) throw new Error('RANGE_UNSUPPORTED:服务器忽略 Range 且文件过大')
       this.fullBody = bytes
       this.size = bytes.byteLength
       this.contentType = response.headers.get('content-type') || this.contentType
       this.rangeSupport = false
+      this.chunks.clear()
+      this.cachedBytes = 0
       this.lastProbe = {
         size: this.size,
         contentType: this.contentType,
@@ -138,10 +213,74 @@ export class RangeLoader {
         cors: 'ok',
         message: '资源未返回 206 Partial Content，将使用完整响应读取',
       }
-      return bytes.slice(offset, offset + length)
+      return
     }
 
     throw new Error(`RANGE_HTTP_${response.status}`)
+  }
+
+  private async fetchWithRetry(headers: Record<string, string>): Promise<Response> {
+    const url = this.source.kind === 'url' ? this.source.url : ''
+    let lastError: unknown = null
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch(url, { headers, redirect: 'follow' })
+        // One transient 5xx should cost a retry, not the whole playback session.
+        if (response.status >= 500 && attempt === 0) {
+          await delay(RETRY_DELAY_MS)
+          continue
+        }
+        return response
+      } catch (error) {
+        lastError = error
+        if (attempt === 0) await delay(RETRY_DELAY_MS)
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('RANGE_NETWORK_ERROR')
+  }
+
+  private storeChunks(offset: number, bytes: Uint8Array<ArrayBuffer>): void {
+    for (let cursor = 0; cursor < bytes.byteLength; cursor += this.chunkSize) {
+      const index = (offset + cursor) / this.chunkSize
+      if (!Number.isInteger(index)) continue
+      const slice = bytes.slice(cursor, cursor + this.chunkSize)
+      const existing = this.chunks.get(index)
+      if (existing) this.cachedBytes -= existing.byteLength
+      this.chunks.set(index, slice)
+      this.cachedBytes += slice.byteLength
+    }
+    this.evict()
+  }
+
+  private evict(): void {
+    while (this.cachedBytes > MAX_CACHE_BYTES) {
+      const oldest = this.chunks.keys().next()
+      if (oldest.done) break
+      const bytes = this.chunks.get(oldest.value)
+      this.chunks.delete(oldest.value)
+      this.cachedBytes -= bytes?.byteLength ?? 0
+    }
+  }
+
+  /** Copy the requested span out of the cached chunks, touching each for LRU. */
+  private assemble(offset: number, length: number): Uint8Array<ArrayBuffer> {
+    const out = new Uint8Array(length) as Uint8Array<ArrayBuffer>
+    let written = 0
+    while (written < length) {
+      const position = offset + written
+      const index = Math.floor(position / this.chunkSize)
+      const chunk = this.chunks.get(index)
+      if (!chunk) break
+      // Re-insert so the most recently used chunk is the last eviction candidate.
+      this.chunks.delete(index)
+      this.chunks.set(index, chunk)
+      const within = position - index * this.chunkSize
+      if (within >= chunk.byteLength) break
+      const take = Math.min(chunk.byteLength - within, length - written)
+      out.set(chunk.subarray(within, within + take), written)
+      written += take
+    }
+    return written === length ? out : out.slice(0, written)
   }
 
   private parseLength(value: string | null): number | null {
@@ -168,4 +307,10 @@ export class RangeLoader {
   get totalSize() { return this.size }
   get supportsRange() { return this.rangeSupport }
   get probeInfo() { return this.lastProbe }
+  /** Bytes actually pulled over the network, for the player's stats panel. */
+  get networkBytes() { return this.downloadedBytes }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

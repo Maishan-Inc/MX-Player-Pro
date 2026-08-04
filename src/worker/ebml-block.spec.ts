@@ -62,6 +62,23 @@ describe('timestamps', () => {
     const packets = parse(blockBody(1, 0, 0x80, [1]), { blockDurationTicks: 42 })
     expect(packets[0].duration).toBe(42_000)
   })
+
+  // Subtitle tracks carry a per-cue BlockDuration inside a BlockGroup. Letting a
+  // track-level DefaultDuration win gave every cue the same wrong on-screen time.
+  it('prefers BlockDuration over DefaultDuration', () => {
+    const packets = parse(blockBody(1, 0, 0x80, [1]), {
+      blockDurationTicks: 42,
+      defaultDurations: new Map([[1, 20_000_000]]),
+    })
+    expect(packets[0].duration).toBe(42_000)
+  })
+
+  it('uses DefaultDuration when the block declares none', () => {
+    const packets = parse(blockBody(1, 0, 0x80, [1]), {
+      defaultDurations: new Map([[1, 20_000_000]]),
+    })
+    expect(packets[0].duration).toBe(20_000)
+  })
 })
 
 describe('lacing', () => {
@@ -105,7 +122,7 @@ describe('lacing', () => {
     expect(packets.map((packet) => packet.timestamp)).toEqual([0, 20_000, 40_000])
   })
 
-  it('falls back to BlockDuration split across laced frames', () => {
+  it('splits BlockDuration across laced frames', () => {
     const packets = parse(fixedLacedBody(1, 0, [[1, 1], [2, 2]]), { blockDurationTicks: 40 })
     expect(packets.map((packet) => packet.timestamp)).toEqual([0, 20_000])
   })

@@ -1,4 +1,4 @@
-import { codecForTrack } from '../lib/codec'
+import { codecForTrack, isTextSubtitle } from '../lib/codec'
 import { parseBlock } from './ebml-block'
 import {
   element, firstElementAllowTruncated, floatValue, text, unsigned, walk, copyBytes, type Element,
@@ -40,6 +40,14 @@ const CLUSTER_CHILDREN = new Set([
 const HEADER_WINDOWS = [1024 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024]
 const CLUSTER_PROBE = 64 * 1024
 const MAX_UNBOUNDED_CLUSTER = 64 * 1024 * 1024
+/** One reply carries roughly this much media, so the worker is not asked per cluster. */
+const BATCH_TARGET_SECONDS = 2
+const BATCH_MAX_CLUSTERS = 24
+/** A resolved seek offset within this of the target is close enough to use as-is. */
+const SEEK_TOLERANCE_SECONDS = 4
+const SEEK_SCAN_STEPS = 12
+const SEEK_SCAN_WINDOW = 256 * 1024
+const SEEK_SCAN_WINDOWS = 8
 
 function parseTrack(bytes: Uint8Array<ArrayBuffer>, item: Element): TrackInfo | null {
   let id = 0
@@ -151,7 +159,7 @@ export class MatroskaParser {
       else if (item.id === ID.tracks) walk(bytes, item.data, item.end, (entry) => {
         if (entry.id === ID.trackEntry) {
           const track = parseTrack(bytes, entry)
-          if (track) { tracks.push(track); this.selected.add(track.id) }
+          if (track) tracks.push(track)
         }
       })
       else if (item.id === ID.cues) cuesElement = item
@@ -159,6 +167,16 @@ export class MatroskaParser {
     })
 
     if (!tracks.length) throw new Error('MKV_TRACKS_NOT_FOUND')
+    // Default selection: the first video and audio track, plus every text subtitle
+    // track. Text subtitles are tiny and are collected continuously so toggling them
+    // on is a UI change rather than a re-demux; bitmap subtitles (PGS, VobSub) cannot
+    // be rendered and would cost real bandwidth, so they stay out.
+    this.selected.clear()
+    for (const kind of ['video', 'audio'] as const) {
+      const first = tracks.find((track) => track.kind === kind)
+      if (first) this.selected.add(first.id)
+    }
+    tracks.filter(isTextSubtitle).forEach((track) => this.selected.add(track.id))
     this.defaultDurations = new Map(
       tracks.filter((track) => track.defaultDurationNs).map((track) => [track.id, track.defaultDurationNs as number]),
     )
@@ -277,6 +295,13 @@ export class MatroskaParser {
   }
 
   resolveSeekOffset(seconds: number): number {
+    const cue = this.cueOffsetFor(seconds)
+    if (cue >= 0) return cue
+    return this.indexOffsetFor(seconds)?.offset ?? this.firstClusterOffset
+  }
+
+  /** Cues point straight at a keyframe cluster, so they are always authoritative. */
+  private cueOffsetFor(seconds: number): number {
     const videoTrack = this.metadata?.tracks.find((track) => track.kind === 'video')
     const preferred = videoTrack ? this.cues.filter((cue) => cue.track === videoTrack.id) : []
     const pool = preferred.length ? preferred : this.cues
@@ -285,40 +310,135 @@ export class MatroskaParser {
       if (cue.time <= seconds) chosen = cue.offset
       else break
     }
-    if (chosen >= 0) return chosen
-    let fallback = -1
+    return chosen
+  }
+
+  /** Best already-visited cluster at or before the target. */
+  private indexOffsetFor(seconds: number): { offset: number; time: number } | null {
+    let found: { offset: number; time: number } | null = null
     for (const entry of this.clusterIndex) {
-      if (entry.time <= seconds) fallback = entry.offset
-      else break
+      if (entry.time <= seconds && (!found || entry.time >= found.time)) found = entry
     }
-    return fallback >= 0 ? fallback : this.firstClusterOffset
+    return found
+  }
+
+  /**
+   * Byte offset to start demuxing from for `seconds`.
+   *
+   * Cues answer this exactly. Without them the old code fell back to the first
+   * cluster, so dragging forward in a file with no Cues rewound to the beginning;
+   * a bounded binary search over cluster boundaries lands near the target instead.
+   */
+  private async seekOffsetFor(seconds: number): Promise<number> {
+    if (seconds <= 0) return this.resolveSeekOffset(seconds)
+    const cue = this.cueOffsetFor(seconds)
+    if (cue >= 0) return cue
+    const indexed = this.indexOffsetFor(seconds)
+    if (indexed && seconds - indexed.time <= SEEK_TOLERANCE_SECONDS) return indexed.offset
+    const from = indexed?.offset ?? this.firstClusterOffset
+    const scanned = await this.scanForCluster(seconds, indexed?.time ?? 0, from)
+    return scanned >= 0 ? scanned : from
+  }
+
+  /** Binary search the segment for the last cluster starting at or before `target`. */
+  private async scanForCluster(target: number, lowTime: number, lowOffset: number): Promise<number> {
+    const end = Number.isFinite(this.segmentEnd) ? this.segmentEnd : this.loader.totalSize ?? 0
+    if (!end || end <= lowOffset) return -1
+    let low = lowOffset
+    let high = end
+    let best = lowTime <= target ? lowOffset : -1
+    for (let step = 0; step < SEEK_SCAN_STEPS && low < high; step += 1) {
+      const probe = Math.floor((low + high) / 2)
+      const found = await this.clusterAtOrAfter(probe, high)
+      if (!found || found.offset >= high) { high = probe; continue }
+      if (found.time <= target) {
+        best = found.offset
+        low = found.offset + 1
+      } else {
+        high = probe
+      }
+    }
+    return best
+  }
+
+  /**
+   * Resync onto the next Cluster header at or after `from` and read its timecode.
+   * Cluster ids are scanned for as a byte signature because without Cues there is no
+   * index that says where element boundaries are.
+   */
+  private async clusterAtOrAfter(from: number, limit: number): Promise<{ offset: number; time: number } | null> {
+    let offset = Math.max(from, 0)
+    for (let window = 0; window < SEEK_SCAN_WINDOWS && offset < limit; window += 1) {
+      const { bytes, base } = await this.loader.readWindow(offset, SEEK_SCAN_WINDOW)
+      const start = offset - base
+      if (start >= bytes.length) return null
+      for (let index = start; index + 4 <= bytes.length; index += 1) {
+        if (bytes[index] !== 0x1f || bytes[index + 1] !== 0x43 || bytes[index + 2] !== 0xb6 || bytes[index + 3] !== 0x75) continue
+        const item = element(bytes, index)
+        if (!item || item.id !== ID.cluster) continue
+        let time = -1
+        walk(bytes, item.data, Math.min(item.end, bytes.length), (child) => {
+          if (time < 0 && child.id === ID.timecode) time = unsigned(bytes, child)
+        })
+        if (time < 0) continue
+        const absolute = base + index
+        const seconds = time * (this.metadata?.timecodeScale ?? 1_000_000) / 1_000_000_000
+        this.recordCluster(absolute, seconds)
+        return { offset: absolute, time: seconds }
+      }
+      // Overlap by the signature length so a split id is still found.
+      offset = base + Math.max(bytes.length - 3, 1)
+    }
+    return null
   }
 
   async packetsFor(time = 0): Promise<MKVPacket[]> {
     if (!this.metadata) throw new Error('DEMUX_NOT_INITIALIZED')
-    this.cursor = this.resolveSeekOffset(time)
+    this.cursor = await this.seekOffsetFor(time)
     this.atEnd = false
     return this.next()
   }
 
+  /**
+   * Read forward until roughly BATCH_TARGET_SECONDS of media is collected. Returning
+   * a single cluster per call made every packet cost a worker round trip, which on a
+   * remote source is the difference between filling the buffer and never catching up.
+   */
   async next(): Promise<MKVPacket[]> {
     if (!this.metadata) throw new Error('DEMUX_NOT_INITIALIZED')
+    const batch: MKVPacket[] = []
+    let clusters = 0
+    let spanStart = Number.POSITIVE_INFINITY
+    let spanEnd = Number.NEGATIVE_INFINITY
+
     while (!this.atEnd && this.cursor < this.segmentEnd) {
       const result = await this.readClusterAt(this.cursor)
       // A malformed element that does not advance the cursor would loop forever.
       if (result.nextOffset <= this.cursor) { this.atEnd = true; break }
       this.cursor = result.nextOffset
       if (this.cursor >= this.segmentEnd) this.atEnd = true
-      if (result.packets.length) return result.packets.sort((left, right) => left.timestamp - right.timestamp)
+      if (result.packets.length) {
+        clusters += 1
+        for (const packet of result.packets) {
+          batch.push(packet)
+          const seconds = packet.timestamp / 1_000_000
+          if (seconds < spanStart) spanStart = seconds
+          if (seconds > spanEnd) spanEnd = seconds
+        }
+      }
       if (result.truncated) break
+      if (batch.length && (clusters >= BATCH_MAX_CLUSTERS || spanEnd - spanStart >= BATCH_TARGET_SECONDS)) break
     }
-    this.atEnd = true
-    return []
+
+    if (!batch.length) { this.atEnd = true; return [] }
+    return batch.sort((left, right) => left.timestamp - right.timestamp)
   }
 
   select(kind: TrackKind, trackId: number): void {
     const track = this.metadata?.tracks.find((candidate) => candidate.id === trackId && candidate.kind === kind)
     if (!track) return
+    // Subtitles are all selected permanently; only audio and video swap.
+    if (kind === 'subtitle') return
     this.metadata?.tracks.filter((candidate) => candidate.kind === kind).forEach((candidate) => this.selected.delete(candidate.id))
     this.selected.add(trackId)
   }
@@ -331,6 +451,10 @@ export class MatroskaParser {
   private async readClusterAt(offset: number): Promise<ClusterRead> {
     let { bytes, base } = await this.loader.readWindow(offset, CLUSTER_PROBE)
     let local = offset - base
+    // A short read means the file ends before the declared segment does — common when
+    // the server never exposed Content-Length. That is the end of the stream, not a
+    // parse error, and treating it as one stopped playback with a red overlay.
+    if (local >= bytes.length) return { packets: [], nextOffset: this.segmentEnd, truncated: true }
     const header = element(bytes, local)
     if (!header) throw new Error('MKV_CLUSTER_HEADER_INVALID')
 

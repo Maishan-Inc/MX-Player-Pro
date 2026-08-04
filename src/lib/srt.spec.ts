@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeCue, parseAssBlock, parseSrt, stripAssMarkup } from './srt'
+import { activeCue, activeCues, parseAssBlock, parseSrt, stripAssMarkup } from './srt'
 
 describe('SRT parser', () => {
   it('parses comma timestamps and multiline text', () => {
@@ -10,6 +10,31 @@ describe('SRT parser', () => {
 
   it('ignores malformed blocks', () => {
     expect(parseSrt('bad\nno timing\n\n2\n00:01:00 --> 00:00:59\nreverse')).toEqual([])
+  })
+})
+
+describe('cue selection', () => {
+  // A long sign or translation note routinely overlaps the dialogue underneath it.
+  const overlapping = [
+    { start: 0, end: 30, text: '标题牌' },
+    { start: 5, end: 8, text: '对白' },
+  ]
+
+  it('returns every overlapping cue in start order', () => {
+    expect(activeCues(overlapping, 6).map((cue) => cue.text)).toEqual(['标题牌', '对白'])
+  })
+
+  it('picks the latest-starting cue rather than the one that started first', () => {
+    expect(activeCue(overlapping, 6)?.text).toBe('对白')
+  })
+
+  it('returns nothing outside every cue', () => {
+    expect(activeCues(overlapping, 40)).toEqual([])
+    expect(activeCue(overlapping, 40)).toBeNull()
+  })
+
+  it('treats the end timestamp as exclusive', () => {
+    expect(activeCue([{ start: 1, end: 2, text: 'x' }], 2)).toBeNull()
   })
 })
 

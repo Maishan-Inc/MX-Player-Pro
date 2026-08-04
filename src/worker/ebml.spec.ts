@@ -75,6 +75,20 @@ function payload(size: number, fillValue: number): number[] {
   return new Array(size).fill(fillValue)
 }
 
+/**
+ * Pull packets until the parser runs dry. next() batches several clusters into one
+ * reply, so assertions describe the whole stream rather than one call's worth.
+ */
+async function drain(parser: MatroskaParser): Promise<number[]> {
+  const lengths: number[] = []
+  for (let round = 0; round < 64; round += 1) {
+    const packets = await parser.next()
+    if (!packets.length) break
+    packets.forEach((packet) => lengths.push(packet.data.length))
+  }
+  return lengths
+}
+
 describe('MatroskaParser metadata', () => {
   // Regression: duration is in TimecodeScale units, so seconds = ticks * scale / 1e9.
   // The old code divided by 1e6 and reported milliseconds as seconds.
@@ -142,14 +156,30 @@ describe('MatroskaParser cluster walk', () => {
     const parser = new MatroskaParser(new FakeReader(file))
     await parser.init()
 
-    const lengths: number[] = []
-    for (let round = 0; round < 3; round += 1) {
-      const packets = await parser.next()
-      packets.forEach((packet) => lengths.push(packet.data.length))
-    }
-    expect(lengths).toEqual([120, 340, 90])
+    expect(await drain(parser)).toEqual([120, 340, 90])
     expect(await parser.next()).toEqual([])
     expect(parser.endOfStream).toBe(true)
+  })
+
+  // One cluster per reply meant one worker round trip per fraction of a second of
+  // media, which on a remote source is why the buffer could never get ahead.
+  it('batches consecutive clusters into a single reply', async () => {
+    const file = buildFile({
+      clusters: [0, 100, 200, 300].map((time) => cluster(time, [simpleBlock(1, 0, 0x80, payload(8, 1))])),
+    })
+    const parser = new MatroskaParser(new FakeReader(file))
+    await parser.init()
+    expect(await parser.next()).toHaveLength(4)
+  })
+
+  it('stops batching once the reply spans the target duration', async () => {
+    const file = buildFile({
+      // One second apart, so the two-second target is reached on the third cluster.
+      clusters: [0, 1000, 2000, 3000, 4000].map((time) => cluster(time, [simpleBlock(1, 0, 0x80, payload(8, 1))])),
+    })
+    const parser = new MatroskaParser(new FakeReader(file))
+    await parser.init()
+    expect(await parser.next()).toHaveLength(3)
   })
 
   it('carries keyframe flags through from the block parser', async () => {
@@ -174,12 +204,7 @@ describe('MatroskaParser cluster walk', () => {
     })
     const parser = new MatroskaParser(new FakeReader(file))
     await parser.init()
-    const first = await parser.next()
-    expect(first).toHaveLength(1)
-    expect(first[0].data.length).toBe(embedded.length * 2 + 2)
-    const second = await parser.next()
-    expect(second[0].data.length).toBe(20)
-    expect(await parser.next()).toEqual([])
+    expect(await drain(parser)).toEqual([embedded.length * 2 + 2, 20])
   })
 
   it('skips non-cluster top-level elements between clusters', async () => {
@@ -193,9 +218,7 @@ describe('MatroskaParser cluster walk', () => {
     })
     const parser = new MatroskaParser(new FakeReader(file))
     await parser.init()
-    expect((await parser.next())[0].data.length).toBe(10)
-    expect((await parser.next())[0].data.length).toBe(30)
-    expect(await parser.next()).toEqual([])
+    expect(await drain(parser)).toEqual([10, 30])
   })
 
   // Regression for the reported "Decoder error": a cluster declaring more bytes than
@@ -287,5 +310,26 @@ describe('MatroskaParser cues', () => {
     const parser = new MatroskaParser(new FakeReader(file))
     await parser.init()
     expect(Number.isFinite(parser.resolveSeekOffset(99))).toBe(true)
+  })
+
+  // Without Cues the old fallback returned the first cluster for any forward seek, so
+  // dragging the bar rewound to the beginning of the file.
+  it('scans forward to the right cluster when the file has no cues', async () => {
+    const file = buildFile({
+      clusters: [
+        cluster(0, [simpleBlock(1, 0, 0x80, payload(5, 1))]),
+        cluster(5000, [simpleBlock(1, 0, 0x80, payload(10, 2))]),
+        cluster(10_000, [simpleBlock(1, 0, 0x80, payload(15, 3))]),
+      ],
+    })
+    const parser = new MatroskaParser(new FakeReader(file))
+    await parser.init()
+
+    const atTen = await parser.packetsFor(10)
+    expect(atTen).toHaveLength(1)
+    expect(atTen[0].data.length).toBe(15)
+
+    const atFive = await parser.packetsFor(5)
+    expect(atFive[0].data.length).toBe(10)
   })
 })

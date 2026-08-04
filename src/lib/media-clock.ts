@@ -95,9 +95,19 @@ export class AudioAnchoredClock implements MediaClock {
     return this.hold
   }
 
+  /**
+   * Drop spans that are well behind the playhead, but never the last one.
+   *
+   * Emptying the list would clear `primed`, which hands authority back to the
+   * monotonic clock — and that clock has been free-running through the very stall
+   * that emptied the list, so it reports a time far ahead of the decoded audio.
+   * Keeping the final span means an underrun holds at real media time instead.
+   */
   prune(): void {
+    if (this.spans.length <= 1) return
     const time = this.contextTime()
-    this.spans = this.spans.filter((span) => span.endAt >= time - 1)
+    const kept = this.spans.filter((span) => span.endAt >= time - 1)
+    this.spans = kept.length ? kept : this.spans.slice(-1)
   }
 
   start(): void { /* driven by the audio context */ }
@@ -124,13 +134,19 @@ export class AudioAnchoredClock implements MediaClock {
 
 /**
  * Reports the audio clock once it primes, and the monotonic clock before that.
- * While an audio track exists but has not primed, the monotonic clock is held (not
- * started) so video cannot advance before audio exists.
+ *
+ * Whenever audio is authoritative the monotonic clock is re-anchored to it, so if
+ * audio ever stops being authoritative the fallback continues from real media time
+ * rather than from a value that drifted during a stall. There is deliberately no
+ * ratchet on the reported value: a clock that can only move forward turns one
+ * network stall into a permanent offset, which is what desynchronised subtitles and
+ * made every decoded frame look late.
  */
 export class MasterClock implements MediaClock {
   readonly monotonic: MonotonicClock
   readonly audio: AudioAnchoredClock | null
-  private lastReported = 0
+  private held = false
+  private holdValue = 0
 
   constructor(monotonic: MonotonicClock, audio: AudioAnchoredClock | null = null) {
     this.monotonic = monotonic
@@ -138,14 +154,20 @@ export class MasterClock implements MediaClock {
   }
 
   get currentTime(): number {
-    const value = this.audio?.primed ? this.audio.currentTime : this.monotonic.currentTime
-    // Never report a backward jump across the monotonic -> audio switch.
-    this.lastReported = Math.max(this.lastReported, value)
-    return this.lastReported
+    if (this.held) return this.holdValue
+    if (!this.audio?.primed) return this.monotonic.currentTime
+    const value = this.audio.currentTime
+    // Keep the fallback in sync with the authority so switching sources is seamless.
+    this.monotonic.reset(value)
+    return value
   }
 
   start(): void {
-    this.monotonic.start()
+    this.held = false
+    // With an audio track the audio context is the authority. Running the wall clock
+    // before it primes is exactly what used to leave the readout ahead of the media,
+    // so time simply holds at the anchor until the first audio span lands.
+    if (!this.audio) this.monotonic.start()
     this.audio?.start()
   }
 
@@ -154,8 +176,30 @@ export class MasterClock implements MediaClock {
     this.audio?.stop()
   }
 
+  /**
+   * Freeze the reported time while rebuffering. The monotonic clock is stopped so it
+   * cannot accumulate drift, and the frozen value is what the UI shows — the time
+   * readout stops instead of running away from the picture.
+   */
+  hold(): void {
+    if (this.held) return
+    this.holdValue = this.currentTime
+    this.held = true
+    this.monotonic.stop()
+  }
+
+  resume(): void {
+    if (!this.held) return
+    this.held = false
+    this.monotonic.reset(this.holdValue)
+    if (!this.audio) this.monotonic.start()
+  }
+
+  get isHeld(): boolean { return this.held }
+
   reset(mediaTime: number): void {
-    this.lastReported = mediaTime
+    this.held = false
+    this.holdValue = mediaTime
     this.monotonic.reset(mediaTime)
     this.audio?.reset(mediaTime)
   }

@@ -3,9 +3,9 @@ import {
   ArrowLeft, BarChart3, Captions, Info, Maximize2, Minimize2,
   Pause, Play, RectangleHorizontal, RefreshCw, Settings, Volume2, VolumeX, X,
 } from 'lucide-react'
-import { activeCue, parseAssBlock, stripAssMarkup, type SubtitleCue } from '../lib/srt'
+import { activeCues, parseAssBlock, stripAssMarkup, type SubtitleCue } from '../lib/srt'
 import { isAssSubtitle, isTextSubtitle, trackLabel } from '../lib/codec'
-import { WebCodecsEngine } from '../lib/webcodecs'
+import { WebCodecsEngine, type EngineStats } from '../lib/webcodecs'
 import { explainPlaybackError } from '../lib/playback-error'
 import type { DemuxEvent, DemuxRequest, MKVPacket, ProbeInfo, SourceDescriptor, TrackInfo } from '../types'
 
@@ -13,6 +13,12 @@ interface Props { source: SourceDescriptor; label: string; onExit: () => void }
 interface ContextMenuState { open: boolean; x: number; y: number }
 
 const PLAYER_VERSION = '1.0.0'
+/** Cues are bounded per track; a feature film is well under this. */
+const MAX_CUES_PER_TRACK = 2048
+const EMPTY_STATS: EngineStats = {
+  currentTime: 0, bufferedStart: 0, bufferedEnd: 0, bufferedAhead: 0,
+  bufferedBytes: 0, stalled: false, droppedFrames: 0,
+}
 
 export default function PlayerSurface({ source, label, onExit }: Props) {
   const frameRef = useRef<HTMLDivElement>(null)
@@ -41,7 +47,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const [audioTrackId, setAudioTrackId] = useState<number>()
   const [subtitleTrackId, setSubtitleTrackId] = useState<number | null>(null)
   const [subtitleEnabled, setSubtitleEnabled] = useState(false)
-  const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([])
+  const [cueLines, setCueLines] = useState<string[]>([])
   const [showSettings, setShowSettings] = useState(false)
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
@@ -51,11 +57,20 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const [statsOpen, setStatsOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [engineStatus, setEngineStatus] = useState('等待 WebCodecs…')
+  const [stats, setStats] = useState<EngineStats>(EMPTY_STATS)
   const playingRef = useRef(false)
   const videoTrackRef = useRef<number | undefined>(undefined)
   const audioTrackRef = useRef<number | undefined>(undefined)
   const subtitleTrackRef = useRef<number | null>(null)
-  const subtitleIsAssRef = useRef(false)
+  const subtitleEnabledRef = useRef(false)
+  /**
+   * Cues for every text subtitle track, collected continuously. The demuxer keeps all
+   * subtitle tracks selected, so turning subtitles on is a pure UI switch — it used to
+   * rewind the demuxer, which replayed already-scheduled audio and desynced the clock.
+   */
+  const cuesRef = useRef(new Map<number, SubtitleCue[]>())
+  const subtitleIsAssRef = useRef(new Map<number, boolean>())
+  const cueTextRef = useRef('')
   const eventHandlerRef = useRef<(event: DemuxEvent) => void>(() => undefined)
   const pumpRef = useRef<() => void>(() => undefined)
   const durationRef = useRef(0)
@@ -64,7 +79,6 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const audioTracks = metadata?.tracks.filter((track) => track.kind === 'audio') || []
   const allSubtitleTracks = metadata?.tracks.filter((track) => track.kind === 'subtitle') || []
   const subtitleTracks = allSubtitleTracks.filter(isTextSubtitle)
-  const cue = subtitleEnabled ? activeCue(subtitleCues, currentTime) : null
   const duration = metadata?.duration || 0
   const selectedSubtitle = subtitleTracks.find((track) => track.id === subtitleTrackId)
 
@@ -72,7 +86,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   videoTrackRef.current = videoTrackId
   audioTrackRef.current = audioTrackId
   subtitleTrackRef.current = subtitleTrackId
-  subtitleIsAssRef.current = Boolean(selectedSubtitle && isAssSubtitle(selectedSubtitle))
+  subtitleEnabledRef.current = subtitleEnabled
   durationRef.current = duration
   eventHandlerRef.current = handleWorkerEvent
   pumpRef.current = pump
@@ -96,10 +110,17 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     worker.onmessage = (event: MessageEvent<DemuxEvent>) => eventHandlerRef.current(event.data)
     worker.postMessage({ type: 'init', source } satisfies DemuxRequest)
     const timer = window.setInterval(() => {
-      // The engine clock is the single source of truth; a paused clock reports a
-      // frozen value, which is exactly what should be displayed.
-      const value = engineRef.current?.currentTime ?? 0
-      setCurrentTime(durationRef.current ? Math.min(value, durationRef.current) : value)
+      const active = engineRef.current
+      if (!active) return
+      // Keeps the decoders fed while paused too, so a seek preview still paints.
+      active.tick()
+      const snapshot = active.stats()
+      setStats(snapshot)
+      // The engine clock is the single source of truth; a paused or rebuffering clock
+      // reports a frozen value, which is exactly what should be displayed.
+      const value = durationRef.current ? Math.min(snapshot.currentTime, durationRef.current) : snapshot.currentTime
+      setCurrentTime(value)
+      syncCues(value)
       pumpRef.current()
     }, 100)
     return () => {
@@ -143,9 +164,32 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     workerRef.current?.postMessage({ type: 'next', epoch: epochRef.current } satisfies DemuxRequest)
   }
 
+  /**
+   * Resolve the on-screen subtitle from the selected track's cues. Rendering is driven
+   * off the media clock rather than off packet arrival, so cue text stays put while
+   * the demuxer runs seconds ahead of the playhead.
+   */
+  function syncCues(time: number) {
+    const trackId = subtitleTrackRef.current
+    const cues = subtitleEnabledRef.current && trackId !== null ? cuesRef.current.get(trackId) : undefined
+    const lines = cues ? activeCues(cues, time).map((cue) => cue.text) : []
+    const joined = lines.join(' ')
+    // Only re-render when the visible text actually changes, not every 100ms.
+    if (joined === cueTextRef.current) return
+    cueTextRef.current = joined
+    setCueLines(lines)
+  }
+
   function handleWorkerEvent(event: DemuxEvent) {
     if (event.type === 'progress') { setProgress(event.phase); return }
-    if (event.type === 'error') { setError(explainPlaybackError(event.message)); setProgress('读取失败'); return }
+    if (event.type === 'error') {
+      // Clear the in-flight flag: one transient range failure must not wedge the
+      // fill loop for the rest of the session.
+      inFlightRef.current = false
+      setError(explainPlaybackError(event.message))
+      setProgress('读取失败')
+      return
+    }
     if (event.type === 'metadata') {
       const tracks = event.metadata.tracks
       const video = tracks.find((track) => track.kind === 'video')
@@ -159,7 +203,13 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       setSubtitleTrackId(null)
       subtitleTrackRef.current = null
       setSubtitleEnabled(false)
-      setSubtitleCues([])
+      subtitleEnabledRef.current = false
+      cuesRef.current = new Map()
+      subtitleIsAssRef.current = new Map(
+        tracks.filter(isTextSubtitle).map((track) => [track.id, isAssSubtitle(track)]),
+      )
+      cueTextRef.current = ''
+      setCueLines([])
       setProgress('轨道已识别')
       readyRef.current = true
       void engineRef.current?.configure(video, audio)
@@ -180,31 +230,40 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       if (event.epoch < epochRef.current) return
       inFlightRef.current = false
       eofRef.current = true
-      void engineRef.current?.finish()
-      setProgress('已到达缓存末端')
+      engineRef.current?.markEndOfStream()
+      setProgress('已到达文件末端')
     }
   }
 
   function handlePacket(packet: MKVPacket) {
-    if (packet.trackId === subtitleTrackRef.current) {
+    const isAss = subtitleIsAssRef.current.get(packet.trackId)
+    if (isAss !== undefined) {
       const raw = new TextDecoder().decode(packet.data)
-      const text = subtitleIsAssRef.current ? parseAssBlock(raw) : stripAssMarkup(raw.trim())
-      if (text) {
-        const start = packet.timestamp / 1_000_000
-        // BlockDuration is authoritative now that it is parsed; the fallback only
-        // applies to muxers that omit it.
-        const end = start + (packet.duration > 0 ? packet.duration / 1_000_000 : 3)
-        setSubtitleCues((cues) => {
-          if (cues.some((cue) => cue.start === start && cue.text === text)) return cues
-          const next = [...cues, { start, end, text }]
-          next.sort((left, right) => left.start - right.start)
-          // Cues accumulate for the whole session otherwise; keep a bounded window.
-          return next.length > 600 ? next.slice(next.length - 600) : next
-        })
-      }
+      const text = isAss ? parseAssBlock(raw) : stripAssMarkup(raw.trim())
+      if (text) storeCue(packet, text)
       return
     }
     engineRef.current?.enqueue(packet, videoTrackRef.current, audioTrackRef.current)
+  }
+
+  function storeCue(packet: MKVPacket, text: string) {
+    const start = packet.timestamp / 1_000_000
+    // BlockDuration is authoritative now that it is parsed and preferred over the
+    // track default; the fallback only applies to muxers that omit both.
+    const end = start + (packet.duration > 0 ? packet.duration / 1_000_000 : 3)
+    const existing = cuesRef.current.get(packet.trackId) || []
+    // Cues arrive in order, so this walks back zero steps in the common case.
+    let index = existing.length
+    while (index > 0 && existing[index - 1].start > start) index -= 1
+    // A re-demuxed cue lands exactly where its twin already sits, so only the
+    // neighbours at the insertion point can be duplicates.
+    if (index > 0 && existing[index - 1].start === start && existing[index - 1].text === text) return
+    for (let probe = index; probe < existing.length && existing[probe].start === start; probe += 1) {
+      if (existing[probe].text === text) return
+    }
+    existing.splice(index, 0, { start, end, text })
+    if (existing.length > MAX_CUES_PER_TRACK) existing.splice(0, existing.length - MAX_CUES_PER_TRACK)
+    cuesRef.current.set(packet.trackId, existing)
   }
 
   function togglePlayback() {
@@ -223,38 +282,39 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   function seek(value: number) {
     const next = Math.max(0, Math.min(value, duration || value))
     setCurrentTime(next)
-    setSubtitleCues([])
+    // Cues are keyed by media time, so they survive a seek; only the visible line
+    // has to be recomputed for the new position.
     epochRef.current += 1
     eofRef.current = false
     inFlightRef.current = false
     engineRef.current?.seekTo(next)
+    syncCues(next)
     workerRef.current?.postMessage({ type: 'seek', time: next, epoch: epochRef.current } satisfies DemuxRequest)
     inFlightRef.current = true
     showControls()
   }
 
   function selectTrack(kind: 'audio' | 'subtitle', id: number | null) {
-    if (kind === 'audio') {
-      setAudioTrackId(id === null ? undefined : id)
-      audioTrackRef.current = id === null ? undefined : id
-    } else {
+    if (kind === 'subtitle') {
+      // Every subtitle track is demuxed continuously, so this is display-only: no
+      // epoch bump, no worker round trip, no rewind of the demux cursor.
       setSubtitleTrackId(id)
       subtitleTrackRef.current = id
-      const track = allSubtitleTracks.find((candidate) => candidate.id === id)
-      subtitleIsAssRef.current = Boolean(track && isAssSubtitle(track))
       setSubtitleEnabled(id !== null)
-      setSubtitleCues([])
+      subtitleEnabledRef.current = id !== null
       setShowSubtitleMenu(false)
+      syncCues(engineRef.current?.currentTime ?? currentTime)
+      return
     }
+    setAudioTrackId(id === null ? undefined : id)
+    audioTrackRef.current = id === null ? undefined : id
     if (id === null) return
-    // A newly selected track only yields packets from clusters demuxed after the
-    // switch, so re-demux from the current position. Audio also needs the engine
-    // reset; for subtitles the video pipeline keeps running and the engine skips
-    // the replayed video packets by timestamp.
+    // A newly selected audio track only yields packets from clusters demuxed after
+    // the switch, so re-demux from the current position and reset the engine.
     const time = engineRef.current?.currentTime ?? 0
     epochRef.current += 1
     eofRef.current = false
-    if (kind === 'audio') engineRef.current?.seekTo(time)
+    engineRef.current?.seekTo(time)
     workerRef.current?.postMessage({ type: 'select-track', kind, trackId: id, time, epoch: epochRef.current } satisfies DemuxRequest)
     inFlightRef.current = true
   }
@@ -397,15 +457,22 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
 
   const statsRows: Array<[string, string]> = [
     ['源', source.kind === 'file' ? '本地文件' : safeHostname(label)],
-    ['状态', progress],
+    ['状态', stats.stalled ? '缓冲中' : progress],
     ['HTTP', String(probe?.status || '--')],
     ['CORS', probe?.cors === 'ok' ? '允许' : probe?.cors === 'blocked' ? '阻断' : '未知'],
     ['Range', probe?.acceptsRanges ? '206 Partial Content' : '完整响应 / 不支持 206'],
     ['视频', videoTracks[0] ? trackLabel(videoTracks[0]) : '未识别'],
     ['音频', audioTracks[0] ? trackLabel(audioTracks[0]) : '未识别'],
     ['字幕', `${allSubtitleTracks.length} 条（${subtitleTracks.length} 条可用）`],
+    ['缓冲', `${stats.bufferedAhead.toFixed(1)} 秒 · ${formatBytes(stats.bufferedBytes)}`],
+    ['丢帧', String(stats.droppedFrames)],
     ['解码器', engineStatus],
   ]
+
+  // Percentages for the seek bar's played and buffered layers.
+  const scale = duration || 100
+  const playedPercent = clampPercent((Math.min(currentTime, scale) / scale) * 100)
+  const bufferedPercent = clampPercent((Math.min(Math.max(stats.bufferedEnd, currentTime), scale) / scale) * 100)
 
   return (
     <div className={`player-page ${theater ? 'is-theater' : ''}`}>
@@ -433,15 +500,37 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
           >
             <canvas ref={canvasRef} className="video-canvas" aria-label="视频画面" />
             {!metadata && !error && <div className="player-loading" data-player-control><span className="spinner" /><strong>{progress}</strong></div>}
+            {metadata && !error && stats.stalled && (
+              <div className="player-buffering" data-player-control><span className="spinner" /><strong>缓冲中…</strong></div>
+            )}
             {error && <div className="player-error" data-player-control><strong>无法播放此媒体</strong><span>{error}</span><button className="secondary-button" onClick={() => window.location.reload()}><RefreshCw size={15} /> 重新读取</button></div>}
-            {cue && <div className="subtitle-overlay">{cue.text.split('\n').map((line, index) => <span key={`${line}-${index}`}>{line}</span>)}</div>}
+            {cueLines.length > 0 && (
+              <div className="subtitle-overlay">
+                {cueLines.flatMap((line, cueIndex) => line.split('\n').map((part, index) => (
+                  <span key={`${cueIndex}-${index}-${part}`}>{part}</span>
+                )))}
+              </div>
+            )}
             {statsOpen && <StatsPanel rows={statsRows} onClose={() => setStatsOpen(false)} />}
             {aboutOpen && <AboutPanel onClose={() => setAboutOpen(false)} />}
             {showSubtitleMenu && <SubtitleMenu tracks={subtitleTracks} selectedId={subtitleTrackId} enabled={subtitleEnabled} onSelect={(id) => selectTrack('subtitle', id)} />}
             <div className={`player-controls ${controlsVisible ? 'is-visible' : ''}`} data-player-control onClick={(event) => event.stopPropagation()}>
               <button className="control-button" title={playing ? '暂停' : '播放'} aria-label={playing ? '暂停' : '播放'} onClick={togglePlayback}>{playing ? <Pause size={21} /> : <Play size={21} fill="currentColor" />}</button>
               <span className="time-readout">{formatTime(currentTime)} / {formatTime(duration)}</span>
-              <input className="seek-slider" type="range" min="0" max={duration || 100} step="0.1" value={Math.min(currentTime, duration || 100)} onChange={(event) => seek(Number(event.target.value))} aria-label="播放进度" />
+              <div className="seek-shell" style={{ '--played': `${playedPercent}%`, '--buffered': `${bufferedPercent}%` } as React.CSSProperties}>
+                <div className="seek-rail" aria-hidden="true"><i className="seek-buffered" /><i className="seek-played" /></div>
+                <input
+                  className="seek-slider"
+                  type="range"
+                  min="0"
+                  max={duration || 100}
+                  step="0.1"
+                  value={Math.min(currentTime, duration || 100)}
+                  onChange={(event) => seek(Number(event.target.value))}
+                  aria-label="播放进度"
+                  aria-valuetext={`${formatTime(currentTime)}，已缓冲至 ${formatTime(stats.bufferedEnd)}`}
+                />
+              </div>
               <button className="control-button" title={muted ? '取消静音' : '静音'} aria-label={muted ? '取消静音' : '静音'} onClick={toggleMuted}>{muted ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>
               <input className="volume-slider" type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} onChange={(event) => setVolumeAndUnmute(Number(event.target.value))} aria-label="音量" />
               {subtitleTracks.length > 0 && <button className={`control-button ${subtitleEnabled ? 'is-active' : ''}`} title={selectedSubtitle ? `字幕：${subtitleLabel(selectedSubtitle)}` : '字幕'} aria-label="字幕" aria-pressed={subtitleEnabled} onClick={() => { const next = !showSubtitleMenu; setShowSubtitleMenu(next); setShowSettings(false); showControls(next) }}><Captions size={20} /></button>}
@@ -452,7 +541,11 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
             {showSettings && <SettingsPanel rate={rate} setRate={(next) => { setRate(next); engineRef.current?.setPlaybackRate(next) }} audioTracks={audioTracks} subtitleTracks={subtitleTracks} audioTrackId={audioTrackId} subtitleTrackId={subtitleTrackId} selectTrack={selectTrack} />}
             {contextMenu.open && <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} onStats={openStats} onAbout={openAbout} />}
           </div>
-          <div className="player-status-line"><span>{engineStatus}</span><span>当前时间 {formatTime(currentTime)}</span></div>
+          <div className="player-status-line">
+            <span>{stats.stalled ? '缓冲中…' : engineStatus}</span>
+            <span>已缓冲 {stats.bufferedAhead.toFixed(1)} 秒</span>
+            <span>当前时间 {formatTime(currentTime)}</span>
+          </div>
         </section>
       </main>
     </div>
@@ -500,6 +593,16 @@ function subtitleLabel(track: TrackInfo) {
 
 function safeHostname(value: string) {
   try { return new URL(value).hostname || '远程 URL' } catch { return '远程 URL' }
+}
+
+function clampPercent(value: number) {
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(0)} KB`
+  return `${(value / 1024 / 1024).toFixed(1)} MB`
 }
 
 function formatTime(value: number) {

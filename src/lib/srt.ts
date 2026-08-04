@@ -73,6 +73,18 @@ export function parseAssBlock(payload: string): string {
   return stripAssMarkup(text)
 }
 
+/**
+ * Cues overlapping `time`, in the order they should be stacked on screen.
+ *
+ * ASS routinely overlaps dialogue with signs and translations. Returning only the
+ * earliest match hid every line behind whichever long cue started first.
+ */
+export function activeCues(cues: SubtitleCue[], time: number): SubtitleCue[] {
+  return cues.filter((cue) => time >= cue.start && time < cue.end)
+}
+
 export function activeCue(cues: SubtitleCue[], time: number): SubtitleCue | null {
-  return cues.find((cue) => time >= cue.start && time < cue.end) || null
+  const matches = activeCues(cues, time)
+  // The latest-starting match is the most recently spoken line.
+  return matches.length ? matches[matches.length - 1] : null
 }

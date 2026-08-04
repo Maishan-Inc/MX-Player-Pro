@@ -49,9 +49,12 @@ self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
       if (packets.length) post({ type: 'packets', packets, epoch })
       else post({ type: 'eof', epoch })
     } else if (request.type === 'select-track') {
-      // Re-demux at the current playback position; restarting from 0 would rewind.
+      // Subtitle tracks are always demuxed, so switching one is purely a UI change
+      // and must not rewind the cursor — doing so replayed audio that had already
+      // been scheduled and dragged the media clock backwards.
       parser.select(request.kind as TrackKind, request.trackId)
-      post({ type: 'packets', packets: await parser.packetsFor(request.time), epoch })
+      if (request.kind === 'subtitle') post({ type: 'packets', packets: [], epoch })
+      else post({ type: 'packets', packets: await parser.packetsFor(request.time), epoch })
     } else if (request.type === 'close') {
       parser = null
       ready = false

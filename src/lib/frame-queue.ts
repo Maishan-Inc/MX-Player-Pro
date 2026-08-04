@@ -30,7 +30,12 @@ export class FrameQueue<T extends Closeable> {
       this.dropped += 1
       return
     }
-    this.items.push(item)
+    // Decoders emit in presentation order, but insert by timestamp anyway: take()
+    // relies on items[0] being the earliest frame, and a single out-of-order output
+    // would otherwise strand every frame behind it.
+    let index = this.items.length
+    while (index > 0 && this.items[index - 1].timestamp > item.timestamp) index -= 1
+    this.items.splice(index, 0, item)
     // Drop-oldest: overflow means we are already behind, and the oldest frame is
     // the one take() would discard next anyway. Dropping the newest starves the head.
     while (this.items.length > VIDEO_QUEUE_HIGH) {

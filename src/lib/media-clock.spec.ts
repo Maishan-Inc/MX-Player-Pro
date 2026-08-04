@@ -103,10 +103,21 @@ describe('AudioAnchoredClock', () => {
     clock.prune()
     expect(clock.currentTime).toBeCloseTo(51)
   })
+
+  it('keeps the last span through a long underrun so it stays primed', () => {
+    const context = { value: 0 }
+    const clock = new AudioAnchoredClock(() => context.value)
+    clock.addSpan({ startAt: 0, endAt: 2, mediaStart: 10, rate: 1 })
+    // A 30 second stall: every span is older than the prune window.
+    context.value = 32
+    clock.prune()
+    expect(clock.primed).toBe(true)
+    expect(clock.currentTime).toBeCloseTo(12)
+  })
 })
 
 describe('MasterClock', () => {
-  it('uses the monotonic clock until audio primes, without jumping backward', () => {
+  it('holds time until audio primes so video cannot run ahead of it', () => {
     const { state, now } = controllableNow()
     const context = { value: 0 }
     const monotonic = new MonotonicClock(now)
@@ -114,13 +125,36 @@ describe('MasterClock', () => {
     const master = new MasterClock(monotonic, audio)
 
     master.start()
+    // Wall time passes, but with an audio track the audio context is the authority.
     state.value = 1000
-    expect(master.currentTime).toBeCloseTo(1)
+    expect(master.currentTime).toBeCloseTo(0)
 
-    // Audio primes slightly behind: the reported time must not move backward.
     context.value = 0.5
     audio.addSpan({ startAt: 0, endAt: 2, mediaStart: 0, rate: 1 })
-    expect(master.currentTime).toBeGreaterThanOrEqual(1)
+    expect(master.currentTime).toBeCloseTo(0.5)
+  })
+
+  it('runs on the wall clock when there is no audio track', () => {
+    const { state, now } = controllableNow()
+    const master = new MasterClock(new MonotonicClock(now))
+    master.start()
+    state.value = 1500
+    expect(master.currentTime).toBeCloseTo(1.5)
+  })
+
+  it('re-anchors the monotonic fallback so losing audio does not jump', () => {
+    const { state, now } = controllableNow()
+    const context = { value: 0 }
+    const monotonic = new MonotonicClock(now)
+    const audio = new AudioAnchoredClock(() => context.value)
+    const master = new MasterClock(monotonic, audio)
+
+    master.start()
+    state.value = 30_000
+    audio.addSpan({ startAt: 0, endAt: 2, mediaStart: 0, rate: 1 })
+    context.value = 1
+    expect(master.currentTime).toBeCloseTo(1)
+    expect(monotonic.currentTime).toBeCloseTo(1)
   })
 
   it('reports audio time once it is ahead of the monotonic value', () => {
@@ -131,6 +165,21 @@ describe('MasterClock', () => {
     expect(master.currentTime).toBeCloseTo(1)
     context.value = 4
     expect(master.currentTime).toBeCloseTo(4)
+  })
+
+  it('freezes on hold and continues from there without wall-clock drift', () => {
+    const { state, now } = controllableNow()
+    const master = new MasterClock(new MonotonicClock(now))
+    master.start()
+    state.value = 2000
+    master.hold()
+    expect(master.currentTime).toBeCloseTo(2)
+    // Ten seconds of rebuffering must not advance the readout.
+    state.value = 12_000
+    expect(master.currentTime).toBeCloseTo(2)
+    master.resume()
+    state.value = 13_000
+    expect(master.currentTime).toBeCloseTo(3)
   })
 
   it('resets both clocks to the seek target', () => {

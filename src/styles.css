@@ -97,6 +97,8 @@ a { color: inherit; text-decoration: none; }
 .player-loading, .player-error { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; align-content: center; gap: 11px; padding: 20px; text-align: center; }
 .player-loading { color: rgba(255,255,255,.65); }
 .player-loading strong { font-size: 13px; font-weight: 500; }
+.player-buffering { position: absolute; z-index: 5; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; gap: 9px; padding: 16px 22px; border-radius: 10px; background: rgba(0,0,0,.55); color: rgba(255,255,255,.9); backdrop-filter: blur(8px); pointer-events: none; }
+.player-buffering strong { font-size: 12px; font-weight: 500; }
 .player-error { color: #fff; background: rgba(0,0,0,.76); }
 .player-error span { max-width: 560px; color: var(--danger); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .spinner { width: 25px; height: 25px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
@@ -108,8 +110,20 @@ a { color: inherit; text-decoration: none; }
 .control-button.is-active { color: var(--accent); }
 .time-readout { min-width: 92px; color: rgba(255,255,255,.8); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
 .seek-slider, .volume-slider { min-width: 0; cursor: pointer; accent-color: #fff; }
-.seek-slider { flex: 1; }
 .volume-slider { width: 78px; }
+/* Three stacked layers: rail, buffered, played. The native input stays on top and
+   fully transparent so keyboard and pointer behaviour are unchanged. */
+.seek-shell { position: relative; flex: 1; min-width: 0; height: 18px; display: flex; align-items: center; }
+.seek-rail { position: absolute; left: 0; right: 0; top: 50%; height: 4px; transform: translateY(-50%); border-radius: 2px; background: rgba(255,255,255,.22); overflow: hidden; pointer-events: none; }
+.seek-rail i { position: absolute; inset: 0 auto 0 0; display: block; border-radius: 2px; }
+.seek-buffered { width: var(--buffered, 0%); background: rgba(255,255,255,.42); transition: width .18s linear; }
+.seek-played { width: var(--played, 0%); background: var(--accent, #fff); }
+.seek-slider { position: relative; width: 100%; height: 18px; margin: 0; appearance: none; background: transparent; }
+.seek-slider::-webkit-slider-runnable-track { height: 18px; background: transparent; }
+.seek-slider::-moz-range-track { height: 18px; background: transparent; }
+.seek-slider::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; margin-top: 3px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.seek-slider::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.seek-slider:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 .settings-panel, .subtitle-menu, .context-menu { position: absolute; z-index: 20; border: 1px solid rgba(255,255,255,.22); border-radius: 8px; background: rgba(9,9,9,.96); color: #fff; box-shadow: 0 18px 54px rgba(0,0,0,.55); backdrop-filter: blur(14px); }
 .settings-panel { right: 13px; bottom: 67px; width: min(330px, calc(100% - 26px)); display: grid; gap: 12px; padding: 14px; }
 .settings-panel label { display: grid; grid-template-columns: 75px minmax(0, 1fr); align-items: center; gap: 9px; color: rgba(255,255,255,.68); font-size: 11px; }

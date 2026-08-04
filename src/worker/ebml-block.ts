@@ -74,14 +74,17 @@ export function parseBlock(bytes: Uint8Array<ArrayBuffer>, item: Element, contex
 
   const baseTimestamp = Math.round((context.clusterTime + relative) * context.timecodeScale / 1000)
   const defaultDurationNs = context.defaultDurations?.get(trackId)
+  // BlockDuration is authoritative when present; DefaultDuration is the fallback.
   const blockDurationUs = context.blockDurationTicks === undefined
     ? undefined
     : Math.round(context.blockDurationTicks * context.timecodeScale / 1000)
 
   if (lacing === 0) {
-    const duration = defaultDurationNs !== undefined
-      ? Math.round(defaultDurationNs / 1000)
-      : blockDurationUs ?? 0
+    const duration = blockDurationUs !== undefined
+      ? blockDurationUs
+      : defaultDurationNs !== undefined
+        ? Math.round(defaultDurationNs / 1000)
+        : 0
     return [{
       trackId,
       timestamp: baseTimestamp,
@@ -114,10 +117,10 @@ export function parseBlock(bytes: Uint8Array<ArrayBuffer>, item: Element, contex
   }
 
   if (sizes.some((size) => size < 0)) return []
-  const frameDurationUs = defaultDurationNs !== undefined
-    ? Math.round(defaultDurationNs / 1000)
-    : blockDurationUs !== undefined
-      ? Math.round(blockDurationUs / frameCount)
+  const frameDurationUs = blockDurationUs !== undefined
+    ? Math.round(blockDurationUs / frameCount)
+    : defaultDurationNs !== undefined
+      ? Math.round(defaultDurationNs / 1000)
       : 0
 
   const packets: MKVPacket[] = []
