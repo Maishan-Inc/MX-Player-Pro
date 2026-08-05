@@ -19,7 +19,7 @@ self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
   try {
     if (request.type === 'init') {
       ready = false
-      const wasm = await loadRustDemuxer()
+      const wasm = await loadRustDemuxer(request.wasmBaseUrl)
       const loader = new RangeLoader(request.source)
       parser = new MatroskaParser(loader, wasm)
       post({ type: 'progress', phase: wasm.available ? '加载 Rust WASM 解封装器' : '加载本地解封装器', value: 0.08 })

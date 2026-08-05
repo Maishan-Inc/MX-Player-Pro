@@ -51,7 +51,7 @@ export interface PlaybackMetadata {
 }
 
 export type DemuxRequest =
-  | { type: 'init'; source: SourceDescriptor }
+  | { type: 'init'; source: SourceDescriptor; wasmBaseUrl?: string }
   | { type: 'next'; epoch: number }
   | { type: 'seek'; time: number; epoch: number }
   | { type: 'select-track'; kind: TrackKind; trackId: number; time: number; epoch: number }

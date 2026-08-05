@@ -1,0 +1,57 @@
+name: Publish SDK
+
+# jsDelivr 的 /gh/ 路径直接读 git 树，所以产物必须提交到仓库里。
+# 把它放在独立的 cdn 分支，避免污染 main 的历史。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.15.0 --locked
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:wasm
+        env:
+          REQUIRE_WASM: '1'
+      - run: pnpm build:lib
+
+      - name: Push SDK to cdn branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 全新的孤儿分支：CDN 只需要最新产物，不需要构建历史。
+          rm -rf /tmp/cdn && mkdir -p /tmp/cdn
+          cp -r dist-lib/* /tmp/cdn/
+
+          git checkout --orphan cdn-tmp
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -r /tmp/cdn/* .
+          git add -A
+          git commit -m "SDK build ${TAG:-manual} (${GITHUB_SHA::7})"
+          git push -f origin cdn-tmp:cdn
+
+          echo "已发布到 cdn 分支。"
+          echo "jsDelivr: https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@cdn/mx-player.js"
