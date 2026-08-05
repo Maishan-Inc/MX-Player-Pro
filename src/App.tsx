@@ -3,6 +3,7 @@ import { ArrowRight, ArrowUpRight, Cloud, Moon, Sun } from 'lucide-react'
 import type { SourceDescriptor } from './types'
 import PlayerSurface from './components/PlayerSurface'
 import IntegrationSection from './components/IntegrationSection'
+import Playground from './components/Playground'
 
 const RECENT_URL_KEY = 'mx-player-pro:recent-url'
 const GITHUB_URL = 'https://github.com/Maishan-Inc/MX-Player-Pro'
@@ -14,6 +15,7 @@ export default function App() {
   const [sourceName, setSourceName] = useState('')
   const [inputError, setInputError] = useState('')
   const [dragging, setDragging] = useState(false)
+  const [playgroundOpen, setPlaygroundOpen] = useState(false)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -51,6 +53,17 @@ export default function App() {
   }
 
   if (source) return <PlayerSurface source={source} label={sourceName} onExit={() => setSource(null)} />
+  if (playgroundOpen) {
+    return (
+      <Playground
+        theme={theme}
+        onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+        onExit={() => setPlaygroundOpen(false)}
+      />
+    )
+  }
+
+  const onOpenPlayground = () => setPlaygroundOpen(true)
 
   return (
     <div className="app-shell">
@@ -88,11 +101,14 @@ export default function App() {
 
         <section className="feature-strip" aria-label="播放器能力">
           <Feature title="Range 读取" text="按需请求，不把长片一次性下载。" />
-          <Feature title="硬件解码" text="VideoDecoder 与 AudioDecoder。" />
+          <Feature title="硬件解码" text="VideoDecoder 与 AudioDecoder 直连 GPU。" />
           <Feature title="零上传" text="文件和链接只在本机处理。" />
+          <Feature title="WASM 解封装" text="Rust 编译的 Matroska 解析器跑在 Worker 里。" />
+          <Feature title="字幕渲染" text="SRT 与 ASS 文本轨道，字号、位置可调。" />
+          <Feature title="多轨切换" text="视频、音频、字幕轨道随时切换。" />
         </section>
 
-        <IntegrationSection />
+        <IntegrationSection onOpenPlayground={onOpenPlayground} />
       </main>
       <footer className="site-footer">Powered by MXPlayer Pro v{__APP_VERSION__} © 2026 Maishan Inc. · MIT License</footer>
     </div>
