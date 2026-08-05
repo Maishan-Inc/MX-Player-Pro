@@ -32,8 +32,12 @@ export const SUBTITLE_FONTS: SubtitleFont[] = [
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = { font: 'system', scale: 1, offset: 0 }
 
 export const SCALE_RANGE = { min: 0.6, max: 2.4, step: 0.1 }
-/** Below zero slides under the controls bar, which auto-hides, so a little is useful. */
-export const OFFSET_RANGE = { min: -10, max: 40, step: 1 }
+/**
+ * Percent of frame height, added to the 12% resting position. The floor keeps the
+ * line inside the frame; the ceiling stops just short of the top edge so a dragged
+ * subtitle can reach the upper third without leaving the picture.
+ */
+export const OFFSET_RANGE = { min: -11, max: 74, step: 1 }
 
 const STORAGE_PREFIX = 'mx-player-pro:subtitle-style:'
 

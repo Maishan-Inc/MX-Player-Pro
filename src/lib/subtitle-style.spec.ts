@@ -23,8 +23,10 @@ describe('subtitle style clamping', () => {
   it('keeps size and position inside the usable range', () => {
     expect(clampScale(9)).toBe(2.4)
     expect(clampScale(0.1)).toBe(0.6)
-    expect(clampOffset(999)).toBe(40)
-    expect(clampOffset(-999)).toBe(-10)
+    // Offset is a percentage of frame height added to the 12% resting position, so
+    // the ceiling carries the line to the upper third and the floor keeps it in frame.
+    expect(clampOffset(999)).toBe(74)
+    expect(clampOffset(-999)).toBe(-11)
   })
 
   // Repeated +0.1 steps on a float otherwise drift into 1.2000000000000002 and
@@ -67,7 +69,7 @@ describe('per-host caching', () => {
 
   it('sanitizes out-of-range and corrupt cached values', () => {
     saveSubtitleStyle('c.example', { font: 'sans', scale: 99, offset: -99 })
-    expect(loadSubtitleStyle('c.example')).toEqual({ font: 'sans', scale: 2.4, offset: -10 })
+    expect(loadSubtitleStyle('c.example')).toEqual({ font: 'sans', scale: 2.4, offset: -11 })
     localStorage.setItem('mx-player-pro:subtitle-style:d.example', '{ not json')
     expect(loadSubtitleStyle('d.example')).toEqual(DEFAULT_SUBTITLE_STYLE)
   })
