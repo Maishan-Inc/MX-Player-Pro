@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 
+// 两个 CDN 通道：jsDelivr 读 cdn 分支（可锁版本），Pages 跟随最新一次部署。
 const CDN_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn'
+const PAGES_BASE = 'https://player.freeanime.org/sdk'
 
 interface Snippet {
   id: string
@@ -14,17 +16,37 @@ interface Snippet {
 const SNIPPETS: Snippet[] = [
   {
     id: 'html',
-    label: 'HTML',
+    label: 'HTML (jsDelivr)',
     lang: 'html',
     code: `<div id="mse" style="aspect-ratio:16/9"></div>
 
 <script type="module">
+  // @cdn 取最新；换成 @v1.0.0 可锁定版本。
   import { MXPlayer } from '${CDN_BASE}/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
     url: 'https://example.com/video.mkv',
     wasmBaseUrl: '${CDN_BASE}/wasm/',
+  })
+
+  player.on('ready', () => player.play())
+</script>`,
+  },
+  {
+    id: 'pages',
+    label: 'HTML (Pages)',
+    lang: 'html',
+    code: `<div id="mse" style="aspect-ratio:16/9"></div>
+
+<script type="module">
+  // 跟随站点最新一次部署，不带版本号。
+  import { MXPlayer } from '${PAGES_BASE}/mx-player.js'
+
+  const player = new MXPlayer({
+    playerElm: '#mse',
+    url: 'https://example.com/video.mkv',
+    wasmBaseUrl: '${PAGES_BASE}/wasm/',
   })
 
   player.on('ready', () => player.play())
@@ -158,6 +180,7 @@ export default function IntegrationSection() {
 
       <p className="integration-note">
         需要 Chrome/Edge 94+ 或 Safari 16.4+（WebCodecs）。远端 MKV 须开启 CORS 并支持 Range 请求。
+        当前版本 v{__APP_VERSION__}；jsDelivr 路径把 <code>@cdn</code> 换成 <code>@v{__APP_VERSION__}</code> 即可锁定版本。
       </p>
     </section>
   )

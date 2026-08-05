@@ -1,17 +1,24 @@
 name: Draft Release
 
+# 只手动触发，和 CI / Publish SDK 保持一致的发布节奏。
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: '版本号（例如 1.0.0，不带 v 前缀）'
+        required: true
+        default: '1.0.0'
+        type: string
       tag:
-        description: Existing or new release tag
+        description: 'Git tag（留空则用 version 自动拼接）'
         required: false
-        default: ''
-  push:
-    tags: ['v*']
+        type: string
 
 permissions:
   contents: write
+
+env:
+  APP_VERSION: ${{ github.event.inputs.version }}
 
 jobs:
   release:
@@ -36,12 +43,14 @@ jobs:
           REQUIRE_WASM: '1'
       - run: pnpm build
       - name: Package static build
-        run: tar -czf mx-player-pro-${GITHUB_SHA::7}.tar.gz dist
+        run: tar -czf mx-player-pro-${APP_VERSION}.tar.gz dist
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          TAG="${INPUT_TAG:-${GITHUB_REF_NAME}}"
-          if [ -z "$TAG" ] || [ "$TAG" = "master" ] || [ "$TAG" = "main" ]; then TAG="v0.1.0-${GITHUB_SHA::7}"; fi
-          gh release create "$TAG" "mx-player-pro-${GITHUB_SHA::7}.tar.gz" --draft --generate-notes --target "$GITHUB_SHA" --title "MX Player Pro $TAG"
+          set -euo pipefail
+          TAG="${INPUT_TAG:-v${APP_VERSION}}"
+          gh release create "$TAG" "mx-player-pro-${APP_VERSION}.tar.gz" \
+            --draft --generate-notes --target "$GITHUB_SHA" \
+            --title "MX Player Pro $TAG"

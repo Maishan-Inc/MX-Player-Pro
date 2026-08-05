@@ -14,10 +14,13 @@ const entry = (path: string) => fileURLToPath(new URL(path, import.meta.url))
  * 只会让人以为 <script src> 能用。
  */
 export default defineConfig(({ mode }) => {
+  const version = process.env.APP_VERSION || '1.0.0-dev'
+
   if (process.env.BUILD_MODE === 'lib') {
     return {
       plugins: [react()],
       worker: { format: 'es' },
+      define: { __APP_VERSION__: JSON.stringify(version) },
       build: {
         target: 'es2022',
         sourcemap: true,
@@ -42,6 +45,7 @@ export default defineConfig(({ mode }) => {
     base: mode === 'production' ? './' : '/',
     plugins: [react()],
     worker: { format: 'es' },
+    define: { __APP_VERSION__: JSON.stringify(version) },
     build: { target: 'es2022', sourcemap: true },
   }
 })

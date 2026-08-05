@@ -1,12 +1,25 @@
 name: CI
 
+# 只手动触发：构建与部署的时机由发布者决定，版本号也在触发时输入。
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（例如 1.0.0，不带 v 前缀）'
+        required: true
+        default: '1.0.0'
+        type: string
+      deploy_pages:
+        description: '同时部署到 GitHub Pages'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
+
+env:
+  APP_VERSION: ${{ github.event.inputs.version }}
 
 jobs:
   build:
@@ -34,7 +47,7 @@ jobs:
       - run: pnpm build:lib
 
   pages:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event.inputs.deploy_pages == 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:

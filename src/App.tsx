@@ -94,7 +94,7 @@ export default function App() {
 
         <IntegrationSection />
       </main>
-      <footer className="site-footer">Powered by MXPlayer Pro © 2026 Maishan Inc. · MIT License</footer>
+      <footer className="site-footer">Powered by MXPlayer Pro v{__APP_VERSION__} © 2026 Maishan Inc. · MIT License</footer>
     </div>
   )
 }

@@ -3,21 +3,23 @@ name: Publish SDK
 # jsDelivr 的 /gh/ 路径直接读 git 树，所以产物必须提交到仓库里。
 # 把它放在独立的 cdn 分支，避免污染 main 的历史。
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
         description: '版本号（例如 1.0.0，不带 v 前缀）'
         required: true
+        default: '1.0.0'
         type: string
       tag:
-        description: 'Git tag（例如 v1.0.0，留空则使用 version 自动拼接）'
+        description: 'Git tag（例如 v1.0.0，留空则用 version 自动拼接）'
         required: false
         type: string
 
 permissions:
   contents: write
+
+env:
+  APP_VERSION: ${{ github.event.inputs.version }}
 
 jobs:
   publish:
@@ -42,31 +44,38 @@ jobs:
           REQUIRE_WASM: '1'
       - run: pnpm build:lib
 
+      - name: Verify SDK artifacts
+        run: |
+          set -euo pipefail
+          test -f dist-lib/mx-player.js
+          test -f dist-lib/wasm/mkv_demuxer.js
+          test -f dist-lib/wasm/mkv_demuxer_bg.wasm
+          echo "产物校验通过。"
+          du -sh dist-lib
+
       - name: Push SDK to cdn branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          # 从 workflow_dispatch 输入或 git tag 确定版本标签
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            TAG="${{ github.event.inputs.tag }}"
-          elif [ -n "${{ github.event.inputs.version }}" ]; then
-            TAG="v${{ github.event.inputs.version }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="v${APP_VERSION}"; fi
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 全新的孤儿分支：CDN 只需要最新产物，不需要构建历史。
-          rm -rf /tmp/cdn && mkdir -p /tmp/cdn
-          cp -r dist-lib/* /tmp/cdn/
+          # 先把产物挪到工作区之外，checkout --orphan 会保留工作区文件，
+          # 直接提交会把 node_modules、crates/target 等一并推上去（jsDelivr 50MB 上限）。
+          rm -rf /tmp/cdn
+          cp -r dist-lib /tmp/cdn
 
           git checkout --orphan cdn-tmp
-          git rm -rf . >/dev/null 2>&1 || true
-          cp -r /tmp/cdn/* .
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          # 清空工作区，只留 .git，避免任何未跟踪文件混入 CDN 分支。
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          cp -r /tmp/cdn/. .
+
           git add -A
           git commit -m "SDK build ${TAG} (${GITHUB_SHA::7})"
           git push -f origin cdn-tmp:cdn

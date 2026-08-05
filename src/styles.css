@@ -171,6 +171,7 @@ a { color: inherit; text-decoration: none; }
 .integration-code pre { margin: 0; padding: 2px 14px 15px; overflow-x: auto; }
 .integration-code pre code { font: 11.5px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
 .integration-note { grid-column: 1 / -1; margin: 4px 0 0; color: var(--dim); font-size: 11.5px; line-height: 1.6; }
+.integration-note code { padding: 1px 4px; border-radius: 3px; background: var(--line-soft); color: var(--muted); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 
 @media (max-width: 760px) {
   .topbar { min-height: 88px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding-top: 13px; padding-bottom: 13px; gap: 10px 12px; }

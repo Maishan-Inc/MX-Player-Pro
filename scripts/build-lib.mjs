@@ -8,6 +8,9 @@ const outDir = new URL('./dist-lib/', root)
 const wasmSrc = new URL('./public/wasm/', root)
 const wasmOut = new URL('./wasm/', outDir)
 
+// 版本号由 CI 通过 APP_VERSION 传入，同时注入到代码和 package.json。
+const version = process.env.APP_VERSION || '1.0.0-dev'
+
 // BUILD_MODE 通过 env 传给 vite.config.ts，避免为一个变量引入 cross-env。
 await new Promise((resolve, reject) => {
   const child = spawn('npx', ['vite', 'build'], {
@@ -35,7 +38,7 @@ if (existsSync(fileURLToPath(wasmSrc))) {
 // 让 dist-lib 可以被 npm 直接发布，也让 jsDelivr 的目录列表更清晰。
 const pkg = {
   name: 'mx-player-pro',
-  version: '1.0.0',
+  version,
   type: 'module',
   exports: {
     '.': './mx-player.js',

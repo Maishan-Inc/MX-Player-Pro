@@ -12,7 +12,7 @@ import type { DemuxEvent, DemuxRequest, MKVPacket, ProbeInfo, SourceDescriptor, 
 interface Props { source: SourceDescriptor; label: string; onExit: () => void }
 interface ContextMenuState { open: boolean; x: number; y: number }
 
-const PLAYER_VERSION = '1.0.0'
+const PLAYER_VERSION = __APP_VERSION__
 /** Cues are bounded per track; a feature film is well under this. */
 const MAX_CUES_PER_TRACK = 2048
 const EMPTY_STATS: EngineStats = {
