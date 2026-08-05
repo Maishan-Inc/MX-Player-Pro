@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, cp } from 'node:fs/promises'
+import { mkdir, cp, rm } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +19,10 @@ try {
     console.warn(error?.message || error)
   }
 }
+
+// wasm-pack 会在 --out-dir 里写一个内容为 `*` 的 .gitignore。它随产物复制到
+// dist-lib/wasm/ 后会让 `git add -A` 跳过整个目录，CDN 分支就少了 WASM。
+await rm(new URL('./.gitignore', out), { force: true })
 
 try {
   await cp(new URL('./README.md', root), new URL('./README.md', out))

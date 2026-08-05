@@ -50,6 +50,8 @@ jobs:
           test -f dist-lib/mx-player.js
           test -f dist-lib/wasm/mkv_demuxer.js
           test -f dist-lib/wasm/mkv_demuxer_bg.wasm
+          # wasm-pack 生成的 .gitignore 会让 git add 跳过整个 wasm/ 目录。
+          test ! -e dist-lib/wasm/.gitignore
           echo "产物校验通过。"
           du -sh dist-lib
 
@@ -77,6 +79,13 @@ jobs:
           cp -r /tmp/cdn/. .
 
           git add -A
+
+          # 提交前确认 WASM 真的进了 git 树：文件在磁盘上存在不等于被 git 收录。
+          git diff --cached --name-only | grep -q '^wasm/mkv_demuxer.js$' \
+            || { echo "::error::wasm/mkv_demuxer.js 未进入提交"; git diff --cached --name-only; exit 1; }
+          git diff --cached --name-only | grep -q '^wasm/mkv_demuxer_bg.wasm$' \
+            || { echo "::error::wasm/mkv_demuxer_bg.wasm 未进入提交"; exit 1; }
+
           git commit -m "SDK build ${TAG} (${GITHUB_SHA::7})"
           git push -f origin cdn-tmp:cdn
 

@@ -1,10 +1,15 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeft, BarChart3, Captions, Info, Maximize2, Minimize2,
-  Pause, Play, RectangleHorizontal, RefreshCw, Settings, Volume2, VolumeX, X,
+  ArrowLeft, BarChart3, Captions, ChevronDown, ChevronUp, Info, Maximize2, Minimize2,
+  Minus, Pause, Play, Plus, RectangleHorizontal, RefreshCw, RotateCcw, Settings,
+  SlidersHorizontal, Volume2, VolumeX, X,
 } from 'lucide-react'
 import { activeCues, parseAssBlock, stripAssMarkup, type SubtitleCue } from '../lib/srt'
 import { isAssSubtitle, isTextSubtitle, trackLabel } from '../lib/codec'
+import {
+  DEFAULT_SUBTITLE_STYLE, OFFSET_RANGE, SCALE_RANGE, SUBTITLE_FONTS, clampOffset, clampScale,
+  fontStack, loadSubtitleStyle, saveSubtitleStyle, subtitleStyleScope, type SubtitleStyle,
+} from '../lib/subtitle-style'
 import { WebCodecsEngine, type EngineStats } from '../lib/webcodecs'
 import { explainPlaybackError } from '../lib/playback-error'
 import type { DemuxEvent, DemuxRequest, MKVPacket, ProbeInfo, SourceDescriptor, TrackInfo } from '../types'
@@ -15,6 +20,8 @@ interface ContextMenuState { open: boolean; x: number; y: number }
 const PLAYER_VERSION = __APP_VERSION__
 /** Cues are bounded per track; a feature film is well under this. */
 const MAX_CUES_PER_TRACK = 2048
+/** Stand-in line for the style editor, shown when no real cue is on screen. */
+const SAMPLE_CUE = '这是字幕示例 · Subtitle preview'
 const EMPTY_STATS: EngineStats = {
   currentTime: 0, bufferedStart: 0, bufferedEnd: 0, bufferedAhead: 0,
   bufferedBytes: 0, stalled: false, droppedFrames: 0,
@@ -50,6 +57,8 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const [cueLines, setCueLines] = useState<string[]>([])
   const [showSettings, setShowSettings] = useState(false)
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false)
+  const [showSubtitleEditor, setShowSubtitleEditor] = useState(false)
+  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>(() => loadSubtitleStyle(subtitleStyleScope(source)))
   const [controlsVisible, setControlsVisible] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
   const [theater, setTheater] = useState(false)
@@ -74,6 +83,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const eventHandlerRef = useRef<(event: DemuxEvent) => void>(() => undefined)
   const pumpRef = useRef<() => void>(() => undefined)
   const durationRef = useRef(0)
+  const styleScopeRef = useRef(subtitleStyleScope(source))
 
   const videoTracks = metadata?.tracks.filter((track) => track.kind === 'video') || []
   const audioTracks = metadata?.tracks.filter((track) => track.kind === 'audio') || []
@@ -155,6 +165,22 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current)
     if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current)
   }, [])
+
+  /**
+   * Subtitle styling is cached per playback host rather than globally, so a size that
+   * suits one site's releases is not imposed on the next. Reload on source change and
+   * write back on every edit; the scope ref keeps the load from echoing straight into
+   * a save of the value that was just read.
+   */
+  useEffect(() => {
+    const scope = subtitleStyleScope(source)
+    styleScopeRef.current = scope
+    setSubtitleStyle(loadSubtitleStyle(scope))
+  }, [source])
+
+  useEffect(() => {
+    saveSubtitleStyle(styleScopeRef.current, subtitleStyle)
+  }, [subtitleStyle])
 
   function pump() {
     // The worker cannot serve packets until init() has produced metadata.
@@ -334,7 +360,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   }
 
   function controlsPinned() {
-    return contextMenu.open || statsOpen || aboutOpen || showSettings || showSubtitleMenu
+    return contextMenu.open || statsOpen || aboutOpen || showSettings || showSubtitleMenu || showSubtitleEditor
   }
 
   function handleSurfaceClick(event: React.MouseEvent<HTMLDivElement>) {
@@ -359,7 +385,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     const key = event.key.toLowerCase()
     if (![' ', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'j', 'l', 'm', 'f', 'escape'].includes(key)) return
     event.preventDefault()
-    if (key === 'escape') { closeContextMenu(); setStatsOpen(false); setAboutOpen(false); setShowSettings(false); setShowSubtitleMenu(false); return }
+    if (key === 'escape') { closeContextMenu(); setStatsOpen(false); setAboutOpen(false); setShowSettings(false); setShowSubtitleMenu(false); setShowSubtitleEditor(false); return }
     showControls()
     if (key === ' ') togglePlayback()
     else if (key === 'arrowleft') seek(currentTime - 5)
@@ -443,6 +469,15 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     showControls(true)
   }
 
+  function openSubtitleEditor() {
+    // The menu closes so the editor has the frame to itself; the overlay behind it
+    // keeps rendering, which is the whole point of editing here.
+    setShowSubtitleMenu(false)
+    setShowSettings(false)
+    setShowSubtitleEditor(true)
+    showControls(true)
+  }
+
   function setVolumeAndUnmute(next: number) {
     setVolume(next)
     setMuted(next <= 0)
@@ -504,16 +539,42 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
               <div className="player-buffering" data-player-control><span className="spinner" /><strong>缓冲中…</strong></div>
             )}
             {error && <div className="player-error" data-player-control><strong>无法播放此媒体</strong><span>{error}</span><button className="secondary-button" onClick={() => window.location.reload()}><RefreshCw size={15} /> 重新读取</button></div>}
-            {cueLines.length > 0 && (
-              <div className="subtitle-overlay">
-                {cueLines.flatMap((line, cueIndex) => line.split('\n').map((part, index) => (
-                  <span key={`${cueIndex}-${index}-${part}`}>{part}</span>
-                )))}
+            {(cueLines.length > 0 || showSubtitleEditor) && (
+              <div
+                className={`subtitle-overlay ${showSubtitleEditor ? 'is-editing' : ''}`}
+                style={{
+                  '--subtitle-font': fontStack(subtitleStyle.font),
+                  '--subtitle-scale': subtitleStyle.scale,
+                  '--subtitle-offset': `${subtitleStyle.offset}%`,
+                } as React.CSSProperties}
+              >
+                {cueLines.length > 0
+                  ? cueLines.flatMap((line, cueIndex) => line.split('\n').map((part, index) => (
+                    <span key={`${cueIndex}-${index}-${part}`}>{part}</span>
+                  )))
+                  : <span className="subtitle-sample">{SAMPLE_CUE}</span>}
               </div>
             )}
             {statsOpen && <StatsPanel rows={statsRows} onClose={() => setStatsOpen(false)} />}
             {aboutOpen && <AboutPanel onClose={() => setAboutOpen(false)} />}
-            {showSubtitleMenu && <SubtitleMenu tracks={subtitleTracks} selectedId={subtitleTrackId} enabled={subtitleEnabled} onSelect={(id) => selectTrack('subtitle', id)} />}
+            {showSubtitleMenu && (
+              <SubtitleMenu
+                tracks={subtitleTracks}
+                selectedId={subtitleTrackId}
+                enabled={subtitleEnabled}
+                style={subtitleStyle}
+                onSelect={(id) => selectTrack('subtitle', id)}
+                onFontChange={(font) => setSubtitleStyle((current) => ({ ...current, font }))}
+                onEdit={openSubtitleEditor}
+              />
+            )}
+            {showSubtitleEditor && (
+              <SubtitleEditor
+                style={subtitleStyle}
+                onChange={setSubtitleStyle}
+                onClose={() => { setShowSubtitleEditor(false); showControls() }}
+              />
+            )}
             <div className={`player-controls ${controlsVisible ? 'is-visible' : ''}`} data-player-control onClick={(event) => event.stopPropagation()}>
               <button className="control-button" title={playing ? '暂停' : '播放'} aria-label={playing ? '暂停' : '播放'} onClick={togglePlayback}>{playing ? <Pause size={21} /> : <Play size={21} fill="currentColor" />}</button>
               <span className="time-readout">{formatTime(currentTime)} / {formatTime(duration)}</span>
@@ -567,8 +628,93 @@ function ContextMenu({ x, y, onClose, onStats, onAbout }: { x: number; y: number
   return <div ref={menuRef} className="context-menu" role="menu" data-player-control style={{ left: x, top: y }} onKeyDown={handleKeyDown} onClick={(event) => event.stopPropagation()}><button role="menuitem" onClick={onStats}><BarChart3 size={15} /> 播放器统计</button><span className="menu-separator" /><button role="menuitem" onClick={onAbout}><Info size={15} /> 关于 MX Player</button></div>
 }
 
-function SubtitleMenu({ tracks, selectedId, enabled, onSelect }: { tracks: TrackInfo[]; selectedId: number | null; enabled: boolean; onSelect: (id: number | null) => void }) {
-  return <div className="subtitle-menu" role="menu" data-player-control onClick={(event) => event.stopPropagation()}><strong>字幕</strong><button className={!enabled || selectedId === null ? 'is-selected' : ''} onClick={() => onSelect(null)}>关闭</button>{tracks.map((track) => <button key={track.id} className={enabled && selectedId === track.id ? 'is-selected' : ''} onClick={() => onSelect(track.id)}>{subtitleLabel(track)}</button>)}</div>
+function SubtitleMenu({ tracks, selectedId, enabled, style, onSelect, onFontChange, onEdit }: { tracks: TrackInfo[]; selectedId: number | null; enabled: boolean; style: SubtitleStyle; onSelect: (id: number | null) => void; onFontChange: (font: string) => void; onEdit: () => void }) {
+  return (
+    <div className="subtitle-menu" role="menu" data-player-control onClick={(event) => event.stopPropagation()}>
+      <div className="subtitle-menu-head">
+        <strong>字幕</strong>
+        <select value={style.font} onChange={(event) => onFontChange(event.target.value)} title="字幕字体" aria-label="字幕字体">
+          {SUBTITLE_FONTS.map((font) => <option value={font.id} key={font.id}>{font.label}</option>)}
+        </select>
+        <button className="subtitle-edit-button" title="编辑字幕样式" aria-label="编辑字幕样式" onClick={onEdit}><SlidersHorizontal size={15} /></button>
+      </div>
+      <button className={!enabled || selectedId === null ? 'is-selected' : ''} onClick={() => onSelect(null)}>关闭</button>
+      {tracks.map((track) => <button key={track.id} className={enabled && selectedId === track.id ? 'is-selected' : ''} onClick={() => onSelect(track.id)}>{subtitleLabel(track)}</button>)}
+    </div>
+  )
+}
+
+/**
+ * Size and vertical position are edited against the live overlay — the frame keeps
+ * playing behind the panel and a sample line stands in whenever no cue is on screen,
+ * so the result is judged in place rather than from a number. Horizontal position is
+ * deliberately absent: subtitles stay centred.
+ */
+function SubtitleEditor({ style, onChange, onClose }: { style: SubtitleStyle; onChange: (style: SubtitleStyle) => void; onClose: () => void }) {
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => { panelRef.current?.querySelector<HTMLButtonElement>('button')?.focus() }, [])
+  const stepScale = (delta: number) => onChange({ ...style, scale: clampScale(style.scale + delta) })
+  const stepOffset = (delta: number) => onChange({ ...style, offset: clampOffset(style.offset + delta) })
+  return (
+    <section
+      ref={panelRef}
+      className="player-modal subtitle-editor"
+      role="dialog"
+      aria-label="字幕样式"
+      data-player-control
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); onClose() } }}
+    >
+      <header>
+        <strong>字幕样式</strong>
+        <button className="modal-close" title="关闭" aria-label="关闭" onClick={onClose}><X size={17} /></button>
+      </header>
+      <label className="subtitle-editor-row">
+        <span>字体</span>
+        <select value={style.font} onChange={(event) => onChange({ ...style, font: event.target.value })}>
+          {SUBTITLE_FONTS.map((font) => <option value={font.id} key={font.id}>{font.label}</option>)}
+        </select>
+      </label>
+      <div className="subtitle-editor-row">
+        <span>大小</span>
+        <div className="subtitle-editor-control">
+          <button title="缩小" aria-label="缩小字幕" onClick={() => stepScale(-SCALE_RANGE.step)}><Minus size={14} /></button>
+          <input
+            type="range"
+            min={SCALE_RANGE.min}
+            max={SCALE_RANGE.max}
+            step={SCALE_RANGE.step}
+            value={style.scale}
+            onChange={(event) => onChange({ ...style, scale: clampScale(Number(event.target.value)) })}
+            aria-label="字幕大小"
+          />
+          <button title="放大" aria-label="放大字幕" onClick={() => stepScale(SCALE_RANGE.step)}><Plus size={14} /></button>
+          <em>{Math.round(style.scale * 100)}%</em>
+        </div>
+      </div>
+      <div className="subtitle-editor-row">
+        <span>位置</span>
+        <div className="subtitle-editor-control">
+          <button title="下移" aria-label="字幕下移" onClick={() => stepOffset(-OFFSET_RANGE.step)}><ChevronDown size={14} /></button>
+          <input
+            type="range"
+            min={OFFSET_RANGE.min}
+            max={OFFSET_RANGE.max}
+            step={OFFSET_RANGE.step}
+            value={style.offset}
+            onChange={(event) => onChange({ ...style, offset: clampOffset(Number(event.target.value)) })}
+            aria-label="字幕垂直位置"
+          />
+          <button title="上移" aria-label="字幕上移" onClick={() => stepOffset(OFFSET_RANGE.step)}><ChevronUp size={14} /></button>
+          <em>{style.offset > 0 ? `+${style.offset}` : style.offset}</em>
+        </div>
+      </div>
+      <footer className="subtitle-editor-foot">
+        <span>设置已按当前播放域名保存</span>
+        <button className="secondary-button" onClick={() => onChange({ ...DEFAULT_SUBTITLE_STYLE })}><RotateCcw size={14} /> 恢复默认</button>
+      </footer>
+    </section>
+  )
 }
 
 function StatsPanel({ rows, onClose }: { rows: Array<[string, string]>; onClose: () => void }) {
