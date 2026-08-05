@@ -6,6 +6,15 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（例如 1.0.0，不带 v 前缀）'
+        required: true
+        type: string
+      tag:
+        description: 'Git tag（例如 v1.0.0，留空则使用 version 自动拼接）'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -38,7 +47,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
+
+          # 从 workflow_dispatch 输入或 git tag 确定版本标签
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            TAG="v${{ github.event.inputs.version }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -50,7 +68,7 @@ jobs:
           git rm -rf . >/dev/null 2>&1 || true
           cp -r /tmp/cdn/* .
           git add -A
-          git commit -m "SDK build ${TAG:-manual} (${GITHUB_SHA::7})"
+          git commit -m "SDK build ${TAG} (${GITHUB_SHA::7})"
           git push -f origin cdn-tmp:cdn
 
           echo "已发布到 cdn 分支。"
