@@ -150,6 +150,35 @@ a { color: inherit; text-decoration: none; }
 .player-about > p { margin: 5px 0 0; color: rgba(255,255,255,.8); font-size: 13px; line-height: 1.6; }
 .player-status-line { display: flex; justify-content: space-between; gap: 12px; padding: 10px 2px; color: var(--dim); font-size: 11px; }
 
+.docs-trigger { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 5px; padding: 6px 10px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 700; white-space: nowrap; transition: color .16s ease, border-color .16s ease; }
+.docs-trigger:hover { color: var(--text); border-color: var(--text); }
+
+/* 接入文档弹层。与播放器内的 .player-modal 分开：那些浮层固定在黑色视频上，
+   颜色写死为白；这个跟随站点主题。 */
+.docs-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: clamp(12px, 4vw, 40px); background: rgba(0,0,0,.62); backdrop-filter: blur(3px); }
+.docs-dialog { width: min(880px, 100%); max-height: min(88vh, 100%); display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); box-shadow: 0 24px 64px rgba(0,0,0,.45); overflow: hidden; }
+.docs-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px clamp(16px, 3vw, 26px); border-bottom: 1px solid var(--line-soft); }
+.docs-header h2 { margin: 0; font-size: 15px; letter-spacing: .01em; }
+.docs-close { width: 30px; height: 30px; flex: 0 0 30px; border: 0; border-radius: 5px; background: transparent; color: var(--text); display: inline-grid; place-items: center; padding: 0; }
+.docs-close:hover { background: var(--line-soft); }
+.docs-body { overflow-y: auto; padding: clamp(18px, 3vw, 26px); display: grid; gap: 34px; }
+.docs-section h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: .01em; }
+.docs-section h4 { margin: 18px 0 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.docs-desc { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.docs-desc a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.docs-list { margin: 0; padding-left: 18px; display: grid; gap: 7px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.docs-list strong { color: var(--text); font-weight: 700; }
+.docs-note { margin: 10px 0 0; padding: 10px 12px; border-left: 2px solid var(--accent); border-radius: 0 4px 4px 0; background: var(--surface); color: var(--muted); font-size: 12px; line-height: 1.6; }
+.docs-note strong { color: var(--text); }
+.docs-body code { padding: 1px 5px; border-radius: 3px; background: var(--surface-raised); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.code-block { border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface); overflow: hidden; }
+.code-header { display: flex; align-items: center; justify-content: space-between; padding: 7px 11px; border-bottom: 1px solid var(--line-soft); }
+.code-lang { color: var(--dim); font: 700 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.code-copy { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted); font-size: 11px; font-weight: 700; padding: 3px 6px; border-radius: 4px; }
+.code-copy:hover { background: var(--line-soft); color: var(--text); }
+.code-block pre { margin: 0; padding: 13px 14px; overflow-x: auto; }
+.code-block pre code { padding: 0; background: transparent; font-size: 11.5px; line-height: 1.65; white-space: pre; overflow-wrap: normal; }
+
 @media (max-width: 760px) {
   .topbar { min-height: 88px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding-top: 13px; padding-bottom: 13px; gap: 10px 12px; }
   .topbar > .collaboration-logo { grid-column: 1; grid-row: 1; }
@@ -162,6 +191,8 @@ a { color: inherit; text-decoration: none; }
   .brand-times { font-size: 14px; }
   .collaboration-logo img { width: 92px; }
   .topbar-actions { gap: 7px; }
+  .docs-trigger { padding: 5px 8px; }
+  .docs-trigger span { display: none; }
   .github-mark { width: 16px; height: 16px; }
   .home-main { width: min(100% - 28px, 620px); padding-top: 30px; }
   .home-player-frame { min-height: 205px; border-radius: 6px; }

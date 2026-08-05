@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, ArrowUpRight, Cloud, Moon, Sun } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Cloud, Code2, Moon, Sun } from 'lucide-react'
 import type { SourceDescriptor } from './types'
 import PlayerSurface from './components/PlayerSurface'
+import DocsModal from './components/DocsModal'
 
 const RECENT_URL_KEY = 'mx-player-pro:recent-url'
 const GITHUB_URL = 'https://github.com/Maishan-Inc/MX-Player-Pro'
@@ -13,6 +14,7 @@ export default function App() {
   const [sourceName, setSourceName] = useState('')
   const [inputError, setInputError] = useState('')
   const [dragging, setDragging] = useState(false)
+  const [docsOpen, setDocsOpen] = useState(false)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -53,7 +55,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <SiteHeader theme={theme} onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')} />
+      <SiteHeader
+        theme={theme}
+        onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+        onOpenDocs={() => setDocsOpen(true)}
+      />
       <main className="home-main">
         <section className="player-launcher" aria-labelledby="player-heading">
           <label
@@ -89,11 +95,12 @@ export default function App() {
         </section>
       </main>
       <footer className="site-footer">Powered by MXPlayer Pro © 2026 Maishan Inc. · MIT License</footer>
+      {docsOpen && <DocsModal onClose={() => setDocsOpen(false)} />}
     </div>
   )
 }
 
-function SiteHeader({ theme, onToggleTheme }: { theme: 'dark' | 'light'; onToggleTheme: () => void }) {
+function SiteHeader({ theme, onToggleTheme, onOpenDocs }: { theme: 'dark' | 'light'; onToggleTheme: () => void; onOpenDocs: () => void }) {
   return (
     <header className="topbar">
       <a className="collaboration-logo" href="https://freeanime.org" target="_blank" rel="noreferrer" aria-label="FREEANIME.ORG 与 Maishan Inc.">
@@ -106,6 +113,9 @@ function SiteHeader({ theme, onToggleTheme }: { theme: 'dark' | 'light'; onToggl
         <a href="https://search.freeanime.org" target="_blank" rel="noreferrer">Limitless Search <ArrowUpRight size={13} aria-hidden="true" /></a>
       </nav>
       <div className="topbar-actions">
+        <button className="docs-trigger" onClick={onOpenDocs} title="接入文档" aria-label="接入文档">
+          <Code2 size={14} aria-hidden="true" /><span>接入文档</span>
+        </button>
         <button className="icon-button" title="切换主题" aria-label="切换主题" onClick={onToggleTheme}>
           {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
         </button>
