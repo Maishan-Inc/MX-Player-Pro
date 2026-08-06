@@ -108,27 +108,103 @@ export default function App() {
           <Feature title="多轨切换" text="视频、音频、字幕轨道随时切换。" />
         </section>
 
+        <WhyChoose />
+
         <IntegrationSection onOpenPlayground={onOpenPlayground} />
 
-        <section className="how-it-works" aria-labelledby="how-heading">
-          <h2 id="how-heading">如何运作</h2>
-          <p className="how-requirements">需要 Chrome/Edge 94+ 或 Safari 16.4+（WebCodecs）。远端 MKV 须开启 CORS 并支持 Range 请求。当前版本 v{__APP_VERSION__}；jsDelivr 路径把 <code>@cdn</code> 换成 <code>@v{__APP_VERSION__}</code> 即可锁定版本。</p>
-          <div className="how-frameworks">
-            <div className="framework-list">
-              <span>JavaScript</span>
-              <span className="separator" aria-hidden="true">|</span>
-              <span>React</span>
-              <span className="separator" aria-hidden="true">|</span>
-              <span>Vue 3</span>
-            </div>
-            <code className="install-cmd">npm install github:Maishan-Inc/MX-Player-Pro#cdn</code>
-          </div>
-        </section>
+        <HowItWorks />
 
         <FAQ />
       </main>
       <footer className="site-footer">Powered by MXPlayer Pro v{__APP_VERSION__} © 2026 Maishan Inc. · MIT License</footer>
     </div>
+  )
+}
+
+function WhyChoose() {
+  const reasons = [
+    {
+      title: '为 MKV 而生',
+      text: '不转码、不重封装。浏览器原生 <video> 不认 Matroska，我们直接在前端解封装，把轨道喂给硬件解码器。',
+    },
+    {
+      title: '内嵌字幕直出',
+      text: 'MKV 里的 SRT 与 ASS 文本轨道随片解析并渲染，不需要单独挂载外挂字幕文件。',
+    },
+    {
+      title: '最前沿的 Web 音视频栈',
+      text: 'WebCodecs + Rust/WASM + Web Worker + Range 流式读取，全部跑在标准浏览器 API 上，无插件、无 Flash、无服务端转码。',
+    },
+    {
+      title: '端到端本地处理',
+      text: '文件和链接都只在你的浏览器里流转，没有中转服务器，也没有任何上传。',
+    },
+  ]
+
+  return (
+    <section className="why-choose" aria-labelledby="why-heading">
+      <div className="why-intro">
+        <h2 id="why-heading">为什么选择 MX Player Pro</h2>
+        <p>
+          MX Player Pro 是 MX Player 的衍生作品，专为在浏览器中播放原生 MKV 视频、
+          并完整展示内嵌字幕而生。它采用了目前 Web 音视频领域最前沿的技术组合，
+          在不依赖任何服务端转码的前提下达到接近本地播放器的表现。
+        </p>
+      </div>
+      <div className="why-grid">
+        {reasons.map((reason) => (
+          <article className="why-card" key={reason.title}>
+            <strong>{reason.title}</strong>
+            <span>{reason.text}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function HowItWorks() {
+  const steps = [
+    {
+      step: '01',
+      title: 'Range 按需取流',
+      text: '远端 MKV 用 HTTP Range 分片拉取，只取播放位置附近需要的字节；本地文件走 File API 逐片读取。长片不会被一次性下载，拖动进度条也只补拉缺失的片段。',
+    },
+    {
+      step: '02',
+      title: 'Rust/WASM 解封装',
+      text: 'Matroska 解析器用 Rust 写成、编译为 WebAssembly，运行在独立的 Web Worker 里。解析 EBML 结构、切分 SimpleBlock、还原时间戳全部离开主线程，UI 不掉帧。',
+    },
+    {
+      step: '03',
+      title: 'WebCodecs 硬件解码',
+      text: '解出的裸流交给 VideoDecoder 与 AudioDecoder，由浏览器直接调用 GPU 硬件解码器处理 H.264/HEVC 与 AAC。没有 JS 软解，CPU 占用和功耗都远低于纯脚本方案。',
+    },
+    {
+      step: '04',
+      title: '合成与字幕渲染',
+      text: '解码帧按时间戳投递到 canvas，音频经 AudioContext 对齐播放时钟；SRT/ASS 文本轨道在同一时间轴上渲染，字号与位置可调。',
+    },
+  ]
+
+  return (
+    <section className="how-it-works" aria-labelledby="how-heading">
+      <div className="how-intro">
+        <h2 id="how-heading">如何运作</h2>
+        <p>从一个 URL 到画面上的一帧，播放器在你的浏览器里走完四步，全程没有服务端参与。</p>
+      </div>
+      <ol className="how-steps">
+        {steps.map((item) => (
+          <li className="how-step" key={item.step}>
+            <span className="how-step-index" aria-hidden="true">{item.step}</span>
+            <div className="how-step-body">
+              <strong>{item.title}</strong>
+              <span>{item.text}</span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   )
 }
 

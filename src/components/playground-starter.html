@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MX Player Pro</title>
+<style>
+  /* 深色为默认，浅色跟随系统；playground 会写 data-theme 强制指定其中一套。 */
+  :root { color-scheme: dark; --bg:#0b0b0b; --text:#f5f5f5; --muted:#989898; --line:rgba(255,255,255,.16); --field:#141414; }
+  :root[data-theme="light"] { color-scheme: light; --bg:#ffffff; --text:#0b0b0b; --muted:#626262; --line:rgba(0,0,0,.16); --field:#f2f2f2; }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) { color-scheme: light; --bg:#ffffff; --text:#0b0b0b; --muted:#626262; --line:rgba(0,0,0,.16); --field:#f2f2f2; }
+  }
+
+  * { box-sizing: border-box; }
+  body { margin:0; height:100vh; display:flex; flex-direction:column; gap:10px; padding:10px;
+         background:var(--bg); color:var(--text); font:13px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, input { font: inherit; }
+
+  /* 画面。SDK 会把 <canvas> 追加进来，覆盖层靠 position 压在它上面。 */
+  .stage { position:relative; flex:1; min-height:0; overflow:hidden; border-radius:7px; background:#000; outline:0; cursor:pointer; }
+  .stage:fullscreen { border-radius:0; }
+  /* 拖拽时 SDK 会给容器加上这个类。 */
+  .stage.mxplayer-dragging { outline:2px dashed #b7f7bf; outline-offset:-6px; }
+
+  .overlay { position:absolute; inset:0; z-index:2; display:grid; place-content:center; justify-items:center; gap:10px;
+             padding:20px; color:rgba(255,255,255,.72); font-size:12px; text-align:center; }
+  .overlay[hidden] { display:none; }
+  .fatal { background:rgba(0,0,0,.72); color:#ff7883; }
+  .spin { width:26px; height:26px; border:2px solid rgba(255,255,255,.2); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* 控件栏：默认隐藏，指针移动或暂停时浮出。 */
+  .controls { position:absolute; z-index:3; inset:auto 0 0; display:flex; align-items:center; gap:7px; padding:9px 12px;
+              background:linear-gradient(to top, rgba(0,0,0,.96), rgba(0,0,0,.72), transparent); color:#fff;
+              opacity:0; transform:translateY(8px); pointer-events:none; transition:opacity .16s ease, transform .16s ease; }
+  .controls.is-visible { opacity:1; transform:none; pointer-events:auto; }
+  .controls button { width:32px; height:32px; flex:0 0 auto; display:grid; place-items:center; padding:0;
+                     border:0; border-radius:50%; background:transparent; color:#fff; cursor:pointer; }
+  .controls button:hover { background:rgba(255,255,255,.14); }
+  .controls svg { width:20px; height:20px; display:block; fill:currentColor; }
+  .clock { min-width:92px; color:rgba(255,255,255,.8); font-size:11px; font-variant-numeric:tabular-nums; text-align:center; white-space:nowrap; }
+
+  /* 进度条：轨道 / 已缓冲 / 已播放三层，最上面盖一个透明的原生 range，
+     键盘与拖动行为交给浏览器，样式完全自定义。 */
+  .seek { position:relative; flex:1; min-width:0; height:18px; display:flex; align-items:center; }
+  .rail { position:absolute; inset:50% 0 auto; height:4px; transform:translateY(-50%); border-radius:2px; background:rgba(255,255,255,.22); overflow:hidden; }
+  .rail i { position:absolute; inset:0 auto 0 0; display:block; border-radius:2px; }
+  .buffered { background:rgba(255,255,255,.42); transition:width .18s linear; }
+  .played { background:#b7f7bf; }
+  input[type=range] { position:relative; width:100%; height:18px; margin:0; appearance:none; background:transparent; cursor:pointer; }
+  input[type=range]::-webkit-slider-thumb { appearance:none; width:12px; height:12px; margin-top:3px; border:0; border-radius:50%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.6); }
+  input[type=range]::-moz-range-thumb { width:12px; height:12px; border:0; border-radius:50%; background:#fff; }
+  .volume { width:74px; flex:0 0 auto; }
+
+  /* 取流地址：这一行就是“直接输入地址就能播放”的入口。 */
+  .source { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:6px 6px 6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--field); }
+  .source input[type=url] { flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--text); font-size:12px; }
+  .source input[type=url]::placeholder { color:var(--muted); }
+  .source button { height:32px; padding:0 14px; border:0; border-radius:5px; background:#b7f7bf; color:#071008; font-size:12px; font-weight:800; cursor:pointer; }
+  :root[data-theme="light"] .source button { background:#0b0b0b; color:#fff; }
+  .pick { flex:0 0 auto; height:32px; display:inline-flex; align-items:center; padding:0 10px; border:1px solid var(--line); border-radius:5px; color:var(--muted); font-size:12px; cursor:pointer; }
+  .pick:hover { color:var(--text); }
+  .pick input { display:none; }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage" tabindex="0" aria-label="MX Player 播放器">
+  <div class="overlay" id="hint">
+    <strong>MX PLAYER PRO</strong>
+    <span>在下方填入 MKV 地址后点播放，或把本地 .mkv 拖进这块画面</span>
+  </div>
+  <div class="overlay" id="busy" hidden><span class="spin"></span><span id="busyText">正在连接媒体…</span></div>
+  <div class="overlay fatal" id="fatal" hidden><strong>无法播放此媒体</strong><span id="fatalText"></span></div>
+
+  <div class="controls" id="controls">
+    <button id="toggle" title="播放 / 暂停" aria-label="播放"></button>
+    <span class="clock" id="clock">00:00 / 00:00</span>
+    <div class="seek">
+      <div class="rail"><i class="buffered" id="buffered"></i><i class="played" id="played"></i></div>
+      <input type="range" id="seek" min="0" max="100" step="0.1" value="0" aria-label="播放进度">
+    </div>
+    <button id="mute" title="静音" aria-label="静音"></button>
+    <input class="volume" type="range" id="volume" min="0" max="1" step="0.01" value="0.85" aria-label="音量">
+    <button id="full" title="全屏" aria-label="全屏"></button>
+  </div>
+</div>
+
+<form class="source" id="source">
+  <input type="url" id="url" placeholder="https://media.example.com/video.mkv" aria-label="MKV 下载地址">
+  <button type="submit">播放</button>
+  <label class="pick">本地文件<input type="file" id="file" accept=".mkv,video/x-matroska"></label>
+</form>
+
+<script type="module">
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js'
+
+  const CDN = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn'
+  const $ = (id) => document.getElementById(id)
+
+  const ICON = {
+    play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24"><path d="M7 5h3.4v14H7zm6.6 0H17v14h-3.4z"/></svg>',
+    sound: '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4"/></svg>',
+    muted: '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zm16 .4L18.6 8 17 9.6 15.4 8 14 9.4 15.6 11 14 12.6l1.4 1.4L17 12.4l1.6 1.6 1.4-1.4L18.4 11z"/></svg>',
+    full: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5v2H6v3zm11-5h5v5h-2V6h-3zM4 15h2v3h3v2H4zm14 0h2v5h-5v-2h3z"/></svg>',
+  }
+
+  const player = new MXPlayer({
+    playerElm: '#stage',
+    // 从 CDN 引入时必须显式指定，否则解封装 Worker 会去当前域名下找 WASM 并 404。
+    wasmBaseUrl: CDN + '/wasm/',
+    localPlayback: true,
+    volume: 0.85,
+  })
+
+  // ---- 播放器事件：这些都会打到右下角的控制台 ----
+
+  player.on('ready', ({ duration, tracks }) => {
+    loading = false
+    show('busy', false)
+    $('seek').max = duration || 100
+    console.log('就绪 · 时长 ' + clock(duration) + ' · ' + tracks.length + ' 条轨道')
+    for (const track of tracks) console.log(describe(track))
+    player.play()
+  })
+
+  player.on('play', () => paintToggle(true))
+  player.on('pause', () => paintToggle(false))
+  player.on('ended', () => console.log('播放结束'))
+  player.on('error', ({ message }) => fail(message))
+
+  player.on('timeupdate', ({ currentTime, duration }) => {
+    $('clock').textContent = clock(currentTime) + ' / ' + clock(duration)
+    $('seek').value = currentTime
+    $('played').style.width = ratio(currentTime, duration)
+  })
+
+  // 缓冲量和卡顿没有事件，从 getState() 轮询。
+  let loading = false
+  setInterval(() => {
+    const state = player.getState()
+    $('buffered').style.width = ratio(state.currentTime + state.bufferedAhead, state.duration)
+    // 首帧出来之前 stalled 还是 false，所以取流阶段要靠 loading 自己把转圈留住。
+    show('busy', loading || state.stalled, loading ? '正在连接媒体…' : '缓冲中…')
+  }, 200)
+
+  // ---- 取流 ----
+
+  $('source').addEventListener('submit', (event) => {
+    event.preventDefault()
+    const url = $('url').value.trim()
+    if (!/^https?:\/\//i.test(url)) { fail('地址必须以 http:// 或 https:// 开头。'); return }
+    start({ kind: 'url', url }, url)
+  })
+
+  $('file').addEventListener('change', (event) => {
+    const file = event.target.files[0]
+    if (file) start({ kind: 'file', file }, file.name)
+  })
+
+  function start(source, label) {
+    console.log('加载 ' + label)
+    show('hint', false)
+    show('fatal', false)
+    loading = true
+    show('busy', true, '正在连接媒体…')
+    // 换源不需要重建实例：load() 会先释放上一路 Worker 与解码器。
+    player.load(source).catch((error) => fail(error.message))
+  }
+
+  // ---- 控件 ----
+
+  $('toggle').addEventListener('click', () => player.toggle())
+  $('seek').addEventListener('input', (event) => player.seek(Number(event.target.value)))
+  $('full').addEventListener('click', () => player.requestFullscreen())
+  $('mute').addEventListener('click', toggleMute)
+  $('volume').addEventListener('input', (event) => {
+    player.setVolume(Number(event.target.value))
+    paintMute(player.getState().muted)
+  })
+
+  $('stage').addEventListener('click', (event) => {
+    if (!event.target.closest('.controls')) player.toggle()
+  })
+
+  $('stage').addEventListener('keydown', (event) => {
+    const { currentTime } = player.getState()
+    if (event.key === 'ArrowLeft') player.seek(currentTime - 5)
+    else if (event.key === 'ArrowRight') player.seek(currentTime + 5)
+    else if (event.key === ' ') player.toggle()
+    else if (event.key === 'f') player.requestFullscreen()
+    else if (event.key === 'm') toggleMute()
+    else return
+    event.preventDefault()
+    reveal()
+  })
+
+  function toggleMute() {
+    const next = !player.getState().muted
+    player.setMuted(next)
+    paintMute(next)
+  }
+
+  let hideTimer = 0
+  $('stage').addEventListener('pointermove', reveal)
+  function reveal() {
+    $('controls').classList.add('is-visible')
+    clearTimeout(hideTimer)
+    // 暂停时控件常驻，播放时 2.6 秒后淡出。
+    if (player.getState().playing) hideTimer = setTimeout(() => $('controls').classList.remove('is-visible'), 2600)
+  }
+  reveal()
+
+  // ---- 小工具 ----
+
+  function paintToggle(playing) {
+    $('toggle').innerHTML = playing ? ICON.pause : ICON.play
+    $('toggle').setAttribute('aria-label', playing ? '暂停' : '播放')
+    reveal()
+  }
+
+  function paintMute(muted) {
+    $('mute').innerHTML = muted ? ICON.muted : ICON.sound
+    $('volume').value = muted ? 0 : player.getState().volume
+  }
+
+  function show(id, visible, text) {
+    $(id).hidden = !visible
+    if (text && id === 'busy') $('busyText').textContent = text
+  }
+
+  function fail(message) {
+    show('busy', false)
+    show('hint', false)
+    $('fatalText').textContent = message
+    show('fatal', true)
+    console.error(message)
+  }
+
+  function describe(track) {
+    const size = track.width ? ' ' + track.width + '×' + track.height : ''
+    const channels = track.channels ? ' ' + track.channels + 'ch' : ''
+    const language = track.language && track.language !== 'und' ? ' [' + track.language + ']' : ''
+    return '  ' + track.kind + ' #' + track.id + ' · ' + track.codecId + size + channels + language
+  }
+
+  function clock(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '00:00'
+    const total = Math.floor(seconds)
+    const pad = (value) => String(value).padStart(2, '0')
+    const hours = Math.floor(total / 3600)
+    const rest = pad(Math.floor(total % 3600 / 60)) + ':' + pad(total % 60)
+    return hours ? hours + ':' + rest : rest
+  }
+
+  function ratio(value, total) {
+    if (!total) return '0%'
+    return Math.max(0, Math.min(100, value / total * 100)) + '%'
+  }
+
+  paintToggle(false)
+  paintMute(false)
+  console.log('播放器已就位，等待媒体地址。')
+</script>
+
+</body>
+</html>

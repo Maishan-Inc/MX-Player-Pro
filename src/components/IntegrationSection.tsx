@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Check, Copy, Terminal } from 'lucide-react'
 
 // 两个 CDN 通道：jsDelivr 读 cdn 分支（可锁版本），Pages 跟随最新一次部署。
@@ -6,11 +6,16 @@ const CDN_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn'
 const PAGES_BASE = 'https://player.freeanime.org/sdk'
 const NPM_INSTALL = 'npm install github:Maishan-Inc/MX-Player-Pro#cdn'
 
+/**
+ * 前两个 tab 从 CDN 直接引 ES module，后三个走 npm 安装。两组之间加分隔符，
+ * 安装命令只列一次，放在这一组的右侧。
+ */
+const NPM_TAB_IDS = new Set(['js', 'react', 'vue'])
+
 interface Snippet {
   id: string
   label: string
   lang: string
-  install?: string
   code: string
 }
 
@@ -64,7 +69,6 @@ const SNIPPETS: Snippet[] = [
     id: 'js',
     label: 'JavaScript',
     lang: 'javascript',
-    install: NPM_INSTALL,
     code: `import { MXPlayer } from 'mx-player-pro'
 
 const player = new MXPlayer({
@@ -94,7 +98,6 @@ window.addEventListener('beforeunload', () => player.destroy())`,
     id: 'react',
     label: 'React',
     lang: 'tsx',
-    install: NPM_INSTALL,
     code: `import { useRef } from 'react'
 import { MXPlayerReact, type MXPlayerHandle } from 'mx-player-pro/react'
 
@@ -121,7 +124,6 @@ export function Player() {
     id: 'vue',
     label: 'Vue 3',
     lang: 'vue',
-    install: NPM_INSTALL,
     code: `<template>
   <MxPlayer
     ref="player"
@@ -173,33 +175,37 @@ export default function IntegrationSection({ onOpenPlayground }: { onOpenPlaygro
 
       <div className="integration-panel">
         <div className="integration-tabbar">
-          <div className="integration-tabs" role="tablist" aria-label="接入方式">
-            {SNIPPETS.map((snippet) => (
-              <button
-                key={snippet.id}
-                role="tab"
-                id={`tab-${snippet.id}`}
-                aria-selected={snippet.id === activeId}
-                aria-controls={`panel-${snippet.id}`}
-                className={snippet.id === activeId ? 'is-active' : ''}
-                onClick={() => setActiveId(snippet.id)}
-              >
-                {snippet.label}
-              </button>
-            ))}
+          <div className="integration-tabgroup">
+            <div className="integration-tabs" role="tablist" aria-label="接入方式">
+              {SNIPPETS.map((snippet, index) => {
+                const startsNpmGroup = index > 0
+                  && NPM_TAB_IDS.has(snippet.id)
+                  && !NPM_TAB_IDS.has(SNIPPETS[index - 1].id)
+                return (
+                  <Fragment key={snippet.id}>
+                    {startsNpmGroup && <span className="integration-tab-sep" aria-hidden="true" />}
+                    <button
+                      role="tab"
+                      id={`tab-${snippet.id}`}
+                      aria-selected={snippet.id === activeId}
+                      aria-controls={`panel-${snippet.id}`}
+                      className={snippet.id === activeId ? 'is-active' : ''}
+                      onClick={() => setActiveId(snippet.id)}
+                    >
+                      {snippet.label}
+                    </button>
+                  </Fragment>
+                )
+              })}
+            </div>
+            <code className="integration-npm">{NPM_INSTALL}</code>
           </div>
           <button className="integration-try" onClick={onOpenPlayground}>
             <Terminal size={13} aria-hidden="true" /> 在线实操
           </button>
         </div>
 
-        <div
-          className="integration-code"
-          role="tabpanel"
-          id={`panel-${active.id}`}
-          aria-labelledby={`tab-${active.id}`}
-        >
-          {active.install && <div className="integration-install"><code>{active.install}</code></div>}
+        <div className="integration-code">
           <div className="integration-code-head">
             <span>{active.lang}</span>
             <button onClick={copyActive} aria-label="复制代码">
@@ -207,9 +213,26 @@ export default function IntegrationSection({ onOpenPlayground }: { onOpenPlaygro
               {copied ? '已复制' : '复制'}
             </button>
           </div>
-          <pre><code>{active.code}</code></pre>
+          {/* 五段代码全部渲染并重叠在同一个网格格子里，容器高度取最长那段，
+              切 tab 不会跳动。未选中的用 visibility 隐藏，仍然占位。 */}
+          <div className="integration-code-stack">
+            {SNIPPETS.map((snippet) => (
+              <pre
+                key={snippet.id}
+                role="tabpanel"
+                id={`panel-${snippet.id}`}
+                aria-labelledby={`tab-${snippet.id}`}
+                aria-hidden={snippet.id === activeId ? undefined : true}
+                className={snippet.id === activeId ? 'is-active' : ''}
+              ><code>{snippet.code}</code></pre>
+            ))}
+          </div>
         </div>
       </div>
+
+      <p className="integration-note">
+        需要 Chrome/Edge 94+ 或 Safari 16.4+（WebCodecs）。远端 MKV 须开启 CORS 并支持 Range 请求。当前版本 v{__APP_VERSION__}；jsDelivr 路径把 <code>@cdn</code> 换成 <code>@v{__APP_VERSION__}</code> 即可锁定版本。
+      </p>
     </section>
   )
 }

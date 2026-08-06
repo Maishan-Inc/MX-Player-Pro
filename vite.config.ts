@@ -21,6 +21,13 @@ export default defineConfig(({ mode }) => {
       plugins: [react()],
       worker: { format: 'es' },
       define: { __APP_VERSION__: JSON.stringify(version) },
+      /**
+       * 相对基址。默认的 '/' 会把解封装 Worker 的地址编译成 `/assets/demux.worker-*.js`，
+       * 而 `new URL('/assets/…', import.meta.url)` 是根相对的，会解析到源站根目录：
+       * jsDelivr 上落成 cdn.jsdelivr.net/assets/…（丢掉 /gh/<repo>@cdn 前缀）而 404，
+       * 装进 node_modules 的消费者同样拿不到。改成 './' 后才跟着 SDK 自身的目录走。
+       */
+      base: './',
       build: {
         target: 'es2022',
         sourcemap: true,
