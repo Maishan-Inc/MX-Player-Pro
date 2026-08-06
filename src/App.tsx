@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, ArrowUpRight, Cloud, Moon, Sun } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, ChevronDown, Cloud, Moon, Sun } from 'lucide-react'
 import type { SourceDescriptor } from './types'
 import PlayerSurface from './components/PlayerSurface'
 import IntegrationSection from './components/IntegrationSection'
@@ -109,9 +109,83 @@ export default function App() {
         </section>
 
         <IntegrationSection onOpenPlayground={onOpenPlayground} />
+
+        <section className="how-it-works" aria-labelledby="how-heading">
+          <h2 id="how-heading">如何运作</h2>
+          <p className="how-requirements">需要 Chrome/Edge 94+ 或 Safari 16.4+（WebCodecs）。远端 MKV 须开启 CORS 并支持 Range 请求。当前版本 v{__APP_VERSION__}；jsDelivr 路径把 <code>@cdn</code> 换成 <code>@v{__APP_VERSION__}</code> 即可锁定版本。</p>
+          <div className="how-frameworks">
+            <div className="framework-list">
+              <span>JavaScript</span>
+              <span className="separator" aria-hidden="true">|</span>
+              <span>React</span>
+              <span className="separator" aria-hidden="true">|</span>
+              <span>Vue 3</span>
+            </div>
+            <code className="install-cmd">npm install github:Maishan-Inc/MX-Player-Pro#cdn</code>
+          </div>
+        </section>
+
+        <FAQ />
       </main>
       <footer className="site-footer">Powered by MXPlayer Pro v{__APP_VERSION__} © 2026 Maishan Inc. · MIT License</footer>
     </div>
+  )
+}
+
+function FAQ() {
+  const [openQa, setOpenQa] = useState<number | null>(0)
+  const items = [
+    {
+      q: '为什么必须传 wasmBaseUrl？',
+      a: '解封装 Worker 用相对路径加载 mkv_demuxer.js。从 CDN 引入时，这个相对路径会落到你自己的域名下并 404，播放器会静默退回较慢的 TypeScript 解析器。显式指定 wasmBaseUrl 指向 CDN 的 wasm/ 目录即可。',
+    },
+    {
+      q: '远端 MKV 有什么要求？',
+      a: '两点：响应头必须允许跨域（Access-Control-Allow-Origin），且支持 HTTP Range 请求（Accept-Ranges: bytes）。播放器靠 Range 按需取片段，服务端若整片返回 200 而不是 206，长片会被一次性拉下来。',
+    },
+    {
+      q: '支持哪些编码？',
+      a: '当前版本支持 H.264/AVC、H.265/HEVC 视频和 AAC 音频。其他编码（VP9、AV1、Opus、Vorbis 等）取决于浏览器的 WebCodecs 实现，但播放器尚未添加映射。不支持的音频轨会被跳过，视频仍可播放。',
+    },
+    {
+      q: '本地文件会被上传吗？',
+      a: '不会。文件通过 File API 在本机读取，逐片喂给 Worker 解封装，全过程没有任何网络请求。远端 URL 同理，只有你的浏览器直接向该地址发 Range 请求。',
+    },
+    {
+      q: '换源要重新 new 一个实例吗？',
+      a: '不需要，调用 player.load({ kind: "url", url }) 即可。重建实例会丢掉已缓存的分片，也要重新启动 Worker 和解码器。React 与 Vue 封装内部也是这么做的。',
+    },
+    {
+      q: '播放器占用的资源怎么释放？',
+      a: '调用 player.destroy()，它会终止 Worker、关闭解码器、移除事件监听并删掉 canvas。React/Vue 组件在卸载时自动调用，原生 JS 需要自己在页面卸载或组件销毁时调用。',
+    },
+  ]
+
+  return (
+    <section className="faq" aria-labelledby="faq-heading">
+      <h2 id="faq-heading">常见问题</h2>
+      <div className="faq-list">
+        {items.map((item, index) => {
+          const open = openQa === index
+          return (
+            <div className={`faq-item ${open ? 'is-open' : ''}`} key={item.q}>
+              <button
+                className="faq-question"
+                aria-expanded={open}
+                aria-controls={`faq-panel-${index}`}
+                onClick={() => setOpenQa(open ? null : index)}
+              >
+                <span>{item.q}</span>
+                <ChevronDown className={`faq-chevron ${open ? 'is-open' : ''}`} size={16} aria-hidden="true" />
+              </button>
+              <div className="faq-answer" id={`faq-panel-${index}`} role="region">
+                <p>{item.a}</p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 

@@ -210,11 +210,6 @@ export default function IntegrationSection({ onOpenPlayground }: { onOpenPlaygro
           <pre><code>{active.code}</code></pre>
         </div>
       </div>
-
-      <p className="integration-note">
-        需要 Chrome/Edge 94+ 或 Safari 16.4+（WebCodecs）。远端 MKV 须开启 CORS 并支持 Range 请求。
-        当前版本 v{__APP_VERSION__}；jsDelivr 路径把 <code>@cdn</code> 换成 <code>@v{__APP_VERSION__}</code> 即可锁定版本。
-      </p>
     </section>
   )
 }

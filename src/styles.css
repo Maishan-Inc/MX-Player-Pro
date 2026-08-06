@@ -107,6 +107,30 @@ a { color: inherit; text-decoration: none; }
 .integration-code pre code { font: 12px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
 .integration-note { max-width: 900px; margin: 12px auto 0; color: var(--dim); font-size: 11.5px; line-height: 1.6; text-align: center; }
 .integration-note code { padding: 1px 4px; border-radius: 3px; background: var(--line-soft); color: var(--muted); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+.how-it-works { margin-top: clamp(56px, 10vh, 104px); padding-top: 34px; border-top: 1px solid var(--line-soft); }
+.how-it-works h2 { margin: 0 0 18px; font-size: clamp(19px, 2.4vw, 25px); letter-spacing: -.02em; line-height: 1.25; text-align: center; }
+.how-requirements { max-width: 900px; margin: 0 auto 20px; color: var(--dim); font-size: 11.5px; line-height: 1.6; text-align: center; }
+.how-requirements code { padding: 1px 4px; border-radius: 3px; background: var(--line-soft); color: var(--muted); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.how-frameworks { display: flex; align-items: center; justify-content: center; gap: clamp(20px, 4vw, 32px); flex-wrap: wrap; max-width: 800px; margin: 0 auto; }
+.framework-list { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 600; }
+.framework-list .separator { color: var(--line); }
+.install-cmd { padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+
+.faq { margin-top: clamp(56px, 10vh, 104px); padding-top: 34px; border-top: 1px solid var(--line-soft); }
+.faq h2 { margin: 0 0 20px; font-size: clamp(19px, 2.4vw, 25px); letter-spacing: -.02em; text-align: center; }
+.faq-list { max-width: 900px; margin: 0 auto; display: grid; gap: 10px; }
+.faq-item { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface); overflow: hidden; transition: border-color .18s ease; }
+.faq-item.is-open, .faq-item:hover { border-color: var(--line); }
+.faq-question { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 0; background: transparent; color: var(--text); padding: 15px 18px; font-size: 13.5px; font-weight: 600; text-align: left; transition: color .18s ease; }
+.faq-question:hover { color: var(--accent); }
+.faq-chevron { flex: 0 0 auto; color: var(--dim); transition: transform .22s ease, color .18s ease; }
+.faq-item.is-open .faq-chevron { transform: rotate(180deg); color: var(--text); }
+.faq-answer { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows .24s ease, visibility .24s; }
+.faq-item.is-open .faq-answer { grid-template-rows: 1fr; visibility: visible; }
+.faq-answer > p { overflow: hidden; margin: 0; padding: 0 18px; color: var(--muted); font-size: 12.5px; line-height: 1.75; transition: padding .24s ease; }
+.faq-item.is-open .faq-answer > p { padding-bottom: 16px; }
+
 .player-topbar { justify-content: space-between; padding-left: clamp(14px, 3vw, 36px); padding-right: clamp(14px, 3vw, 36px); }
 .back-button { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--muted); padding: 8px 0; font-size: 12px; }
 .back-button:hover { color: var(--text); }
@@ -241,20 +265,6 @@ a { color: inherit; text-decoration: none; }
 :root[data-theme="dark"] .playground-output { background: #0f0f0f; }
 .playground-frame { flex: 1; width: 100%; border: 0; display: block; }
 
-.qa { width: min(880px, 100%); margin: 0 auto; }
-.qa h2 { margin: 0 0 16px; font-size: clamp(18px, 2.2vw, 22px); letter-spacing: -.02em; text-align: center; }
-.qa-list { display: grid; gap: 8px; }
-.qa-item { border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface); overflow: hidden; transition: border-color .18s ease; }
-.qa-item.is-open, .qa-item:hover { border-color: var(--line); }
-.qa-question { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 0; background: transparent; color: var(--text); padding: 14px 16px; font-size: 13px; font-weight: 700; text-align: left; }
-.qa-chevron { flex: 0 0 auto; color: var(--dim); transition: transform .22s ease, color .18s ease; }
-.qa-item.is-open .qa-chevron { transform: rotate(180deg); color: var(--text); }
-/* 0fr→1fr 让高度过渡不必测量内容；折叠态移出无障碍树。 */
-.qa-answer { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows .24s ease, visibility .24s; }
-.qa-item.is-open .qa-answer { grid-template-rows: 1fr; visibility: visible; }
-.qa-answer > p { overflow: hidden; margin: 0; padding: 0 16px; color: var(--muted); font-size: 12.5px; line-height: 1.7; transition: padding .24s ease; }
-.qa-item.is-open .qa-answer > p { padding-bottom: 15px; }
-
 .player-page { min-height: 100vh; background: var(--bg); }
 
 @media (max-width: 760px) {
@@ -283,15 +293,19 @@ a { color: inherit; text-decoration: none; }
   .integration-try { margin: 0 10px 8px; }
   .integration-code pre { padding-bottom: 14px; max-height: 400px; }
   .integration-code pre code { font-size: 11px; }
+  .how-it-works { margin-top: 44px; padding-top: 26px; }
+  .how-frameworks { flex-direction: column; gap: 12px; }
+  .framework-list { font-size: 12px; }
+  .install-cmd { font-size: 10.5px; }
+  .faq { margin-top: 44px; padding-top: 26px; }
+  .faq-list { gap: 8px; }
+  .faq-question { padding: 13px 15px; font-size: 12.5px; }
+  .faq-answer > p { font-size: 12px; padding: 0 15px; }
+  .faq-item.is-open .faq-answer > p { padding-bottom: 14px; }
   .playground-split { grid-template-columns: 1fr; gap: 14px; }
   .playground-pane { min-height: 0; }
   .playground-editor, .playground-output { min-height: 320px; }
   .run-button kbd { display: none; }
-  .qa { width: 100%; }
-  .qa h2 { font-size: 17px; }
-  .qa-question { padding: 12px 14px; font-size: 12px; }
-  .qa-answer > p { font-size: 12px; }
-  .integration-code pre code { font-size: 11px; }
   .site-footer { padding: 16px 12px; font-size: 10px; }
   .player-topbar { min-height: 56px; padding-left: 14px; padding-right: 14px; }
   .back-button span { display: none; }
