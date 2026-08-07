@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { codecForTrack, isAssSubtitle, isTextSubtitle, trackLabel } from './codec'
+import { codecDisplayName, codecForTrack, isAssSubtitle, isTextSubtitle, trackLabel } from './codec'
 
 describe('codec mapping', () => {
   it('derives avc1 from AVC CodecPrivate', () => {
@@ -11,6 +11,13 @@ describe('codec mapping', () => {
   it('maps AAC and subtitle tracks', () => {
     expect(codecForTrack({ id: 2, kind: 'audio', codecId: 'A_AAC' })).toBe('mp4a.40.2')
     expect(codecForTrack({ id: 3, kind: 'subtitle', codecId: 'S_TEXT/UTF8' })).toBeNull()
+  })
+
+  it('uses readable names for common video and audio codecs', () => {
+    expect(codecDisplayName({ id: 1, kind: 'video', codecId: 'V_MPEGH/ISO/HEVC' })).toBe('H.265/HEVC')
+    expect(codecDisplayName({ id: 2, kind: 'video', codecId: 'V_MPEG4/ISO/AVC' })).toBe('H.264/AVC')
+    expect(codecDisplayName({ id: 3, kind: 'audio', codecId: 'A_AAC' })).toBe('AAC')
+    expect(trackLabel({ id: 3, kind: 'audio', codecId: 'A_AAC', channels: 2 })).toContain('AAC · 2ch')
   })
 })
 

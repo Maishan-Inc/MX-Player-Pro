@@ -5,7 +5,7 @@ import {
   RotateCcw, Send, Settings, SkipForward, Volume2, VolumeX, X,
 } from 'lucide-react'
 import { activeCues, parseAssBlock, stripAssMarkup, type SubtitleCue } from '../lib/srt'
-import { isAssSubtitle, isTextSubtitle, trackLabel } from '../lib/codec'
+import { codecDisplayName, isAssSubtitle, isTextSubtitle, trackLabel } from '../lib/codec'
 import {
   DEFAULT_SUBTITLE_STYLE, SUBTITLE_FONTS, clampOffset, clampScale,
   fontStack, loadSubtitleStyle, saveSubtitleStyle, subtitleStyleScope, type SubtitleStyle,
@@ -15,6 +15,7 @@ import { explainPlaybackError } from '../lib/playback-error'
 import type { MXPlayerDanmakuOptions, MXPlayerQuality, MXPlayerState } from '../player-api'
 import type { DemuxEvent, DemuxRequest, MKVPacket, ProbeInfo, SourceDescriptor, TrackInfo } from '../types'
 import { createDemuxWorker } from '../worker/create-demux-worker'
+import ProgressPreview from './ProgressPreview'
 
 export interface PlayerSurfaceProps {
   source?: SourceDescriptor
@@ -63,9 +64,11 @@ const PLAYER_VERSION = __APP_VERSION__
 const MAX_CUES_PER_TRACK = 2048
 /** Font previews use a mixed-script sample so CJK and Latin coverage is visible. */
 const FONT_SAMPLE = 'ABCabc123'
+const SUBTITLE_EDIT_SAMPLE = '字幕示例'
 /** Geometry of one track row, mirrored from the stylesheet, for the menu height sum. */
 const MENU_ROW_HEIGHT = 34
 const MENU_ROW_GAP = 4
+const EDITOR_MIN_OFFSET = 42
 const EMPTY_STATS: EngineStats = {
   currentTime: 0, bufferedStart: 0, bufferedEnd: 0, bufferedAhead: 0,
   bufferedBytes: 0, stalled: false, droppedFrames: 0,
@@ -139,6 +142,9 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   const styleScopeRef = useRef(sourceStyleScope(source))
   const wasPausedBeforeEditRef = useRef(false)
   const closeMenuRef = useRef<() => void>(() => undefined)
+  const subtitleMenuOpenRef = useRef(false)
+  const subtitleEditorOpenRef = useRef(false)
+  const subtitleMenuDismissedRef = useRef(false)
   const propsRef = useRef(props)
   const pipVideoRef = useRef<HTMLVideoElement | null>(null)
   const pipStreamRef = useRef<MediaStream | null>(null)
@@ -150,6 +156,9 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   const subtitleTracks = allSubtitleTracks.filter(isTextSubtitle)
   const duration = metadata?.duration || 0
   const selectedSubtitle = subtitleTracks.find((track) => track.id === subtitleTrackId)
+  const activeVideoTrack = videoTracks.find((track) => track.id === videoTrackId) || videoTracks[0]
+  const activeAudioTrack = audioTracks.find((track) => track.id === audioTrackId) || audioTracks[0]
+  const codecSummary = codecSummaryForTracks(activeVideoTrack, activeAudioTrack)
   /** The subtitle menu and its editor hold the picture still for as long as they are open. */
   const playbackLocked = showSubtitleMenu || showSubtitleEditor
 
@@ -158,6 +167,8 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   audioTrackRef.current = audioTrackId
   subtitleTrackRef.current = subtitleTrackId
   subtitleEnabledRef.current = subtitleEnabled
+  subtitleMenuOpenRef.current = showSubtitleMenu
+  subtitleEditorOpenRef.current = showSubtitleEditor
   durationRef.current = duration
   eventHandlerRef.current = handleWorkerEvent
   pumpRef.current = pump
@@ -231,7 +242,9 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     }
 
     const engine = new WebCodecsEngine(canvas, (status) => {
-      setEngineStatus(status.error ? explainPlaybackError(status.error) : `${status.videoReady ? '视频' : '视频不可用'}${status.audioReady ? ' · 音频' : ' · 音频不可用'}`)
+      setEngineStatus(status.error
+        ? explainPlaybackError(status.error)
+        : `${status.videoReady ? '视频就绪' : '视频不可用'} · ${status.audioReady ? '音频就绪' : '音频不可用'}`)
       // Only a dead video pipeline is a fatal, overlay-worthy error; audio-only
       // failures leave the file watchable.
       if (status.error && !/^DECODER_(?:ERROR|UNSUPPORTED)_AUDIO/i.test(status.error)) {
@@ -277,7 +290,25 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     function syncFullscreen() { setFullscreen(document.fullscreenElement === frameRef.current) }
     function closePopups(event: PointerEvent) {
       const target = event.target as Node | null
-      if (target && frameRef.current?.contains(target)) return
+      const element = target instanceof Element ? target : null
+      const insideFrame = Boolean(target && frameRef.current?.contains(target))
+      const insideSubtitleMenu = Boolean(element?.closest('.subtitle-menu'))
+      const isSubtitleToggle = Boolean(element?.closest('[data-subtitle-toggle]'))
+
+      if (subtitleEditorOpenRef.current) {
+        if (!insideFrame) {
+          setContextMenu((current) => current.open ? { ...current, open: false } : current)
+          setShowSettings(false)
+        }
+        return
+      }
+
+      if (insideFrame && subtitleMenuOpenRef.current && !insideSubtitleMenu && !isSubtitleToggle) {
+        subtitleMenuDismissedRef.current = true
+        window.setTimeout(() => { subtitleMenuDismissedRef.current = false }, 0)
+        closeMenuRef.current()
+      }
+      if (insideFrame) return
       setContextMenu((current) => current.open ? { ...current, open: false } : current)
       setShowSettings(false)
       // Route through the ref so closing the menu also resumes playback.
@@ -490,8 +521,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       subtitleTrackRef.current = id
       setSubtitleEnabled(id !== null)
       subtitleEnabledRef.current = id !== null
-      // Picking a track ends the comparison, so the menu closes and playback resumes.
-      closeSubtitleMenu()
+      closeSubtitleMenu(showSubtitleEditor ? false : true)
       syncCues(engineRef.current?.currentTime ?? currentTime)
       return
     }
@@ -567,6 +597,10 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
 
   function handleSurfaceClick(event: React.MouseEvent<HTMLDivElement>) {
     if (isPlayerControl(event.target)) return
+    if (subtitleMenuDismissedRef.current) {
+      subtitleMenuDismissedRef.current = false
+      return
+    }
     closeContextMenu()
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current)
     clickTimerRef.current = window.setTimeout(() => {
@@ -677,7 +711,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
    * menu-owned — a deliberate pause made before opening survives the close.
    */
   function toggleSubtitleMenu() {
-    if (showSubtitleMenu) { closeSubtitleMenu(); return }
+    if (showSubtitleMenu || showSubtitleEditor) { closeSubtitleMenu(true); return }
     holdPlayback()
     setShowSubtitleMenu(true)
     setSubtitleMenuPage('track')
@@ -699,11 +733,11 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     propsRef.current.onPause?.()
   }
 
-  function closeSubtitleMenu() {
+  function closeSubtitleMenu(closeEditor = false) {
     if (!showSubtitleMenu && !showSubtitleEditor) return
     setShowSubtitleMenu(false)
-    setShowSubtitleEditor(false)
-    if (!wasPausedBeforeEditRef.current) {
+    if (closeEditor) setShowSubtitleEditor(false)
+    if ((closeEditor || !showSubtitleEditor) && !wasPausedBeforeEditRef.current) {
       setPlaying(true)
       playingRef.current = true
       engineRef.current?.play()
@@ -719,6 +753,9 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     // re-asserted rather than assumed, so the editor freezes the picture on its own.
     holdPlayback()
     setShowSettings(false)
+    setSubtitleStyle((current) => current.offset < EDITOR_MIN_OFFSET
+      ? { ...current, offset: EDITOR_MIN_OFFSET }
+      : current)
     setShowSubtitleEditor(true)
     showControls(true)
   }
@@ -756,24 +793,18 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     document.addEventListener('pointerup', onUp)
   }
 
-  /**
-   * Drag any corner to scale. Size tracks the pointer's distance from the box centre,
-   * so every corner behaves the same way: out enlarges, in shrinks, and the ratio of
-   * distances maps directly onto the ratio of sizes.
-   */
   function startSubtitleResize(event: React.PointerEvent<HTMLSpanElement>) {
     const box = (event.currentTarget.parentElement as HTMLElement | null)?.getBoundingClientRect()
     if (!box) return
     event.stopPropagation()
     event.preventDefault()
-    const centreX = box.left + box.width / 2
     const centreY = box.top + box.height / 2
-    const startDistance = Math.hypot(event.clientX - centreX, event.clientY - centreY)
+    const startDistance = Math.abs(event.clientY - centreY)
     const startScale = subtitleStyle.scale
-    // A corner grabbed exactly at the centre would divide by zero on the first move.
+    // A handle grabbed exactly at the centre would divide by zero on the first move.
     if (startDistance < 1) return
     function onMove(moveEvent: PointerEvent) {
-      const distance = Math.hypot(moveEvent.clientX - centreX, moveEvent.clientY - centreY)
+      const distance = Math.abs(moveEvent.clientY - centreY)
       setSubtitleStyle((current) => ({ ...current, scale: clampScale(startScale * (distance / startDistance)) }))
     }
     function onUp() {
@@ -809,11 +840,6 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     ['丢帧', String(stats.droppedFrames)],
     ['解码器', engineStatus],
   ]
-
-  // Percentages for the seek bar's played and buffered layers.
-  const scale = duration || 100
-  const playedPercent = clampPercent((Math.min(currentTime, scale) / scale) * 100)
-  const bufferedPercent = clampPercent((Math.min(Math.max(stats.bufferedEnd, currentTime), scale) / scale) * 100)
 
   return (
     <div
@@ -859,17 +885,17 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
                 data-player-control={showSubtitleEditor ? '' : undefined}
                 onPointerDown={showSubtitleEditor ? startSubtitleMove : undefined}
               >
-                {cueLines.length > 0
+                {showSubtitleEditor
+                  ? <span className="subtitle-sample">{SUBTITLE_EDIT_SAMPLE}</span>
+                  : cueLines.length > 0
                   ? cueLines.flatMap((line, cueIndex) => line.split('\n').map((part, index) => (
                     <span key={`${cueIndex}-${index}-${part}`}>{part}</span>
                   )))
                   : <span className="subtitle-sample">{FONT_SAMPLE}</span>}
                 {showSubtitleEditor && (
                   <Fragment>
-                    <span className="subtitle-handle is-nw" onPointerDown={startSubtitleResize} title="拖动调整大小" />
-                    <span className="subtitle-handle is-ne" onPointerDown={startSubtitleResize} title="拖动调整大小" />
-                    <span className="subtitle-handle is-sw" onPointerDown={startSubtitleResize} title="拖动调整大小" />
-                    <span className="subtitle-handle is-se" onPointerDown={startSubtitleResize} title="拖动调整大小" />
+                    <span className="subtitle-handle is-top" onPointerDown={startSubtitleResize} title="拖动调整大小" />
+                    <span className="subtitle-handle is-bottom" onPointerDown={startSubtitleResize} title="拖动调整大小" />
                   </Fragment>
                 )}
               </div>
@@ -897,38 +923,25 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
               />
             )}
             <div className={`player-controls ${controlsVisible ? 'is-visible' : ''}`} data-player-control onClick={(event) => event.stopPropagation()}>
-              <div className="seek-shell" style={{ '--played': `${playedPercent}%`, '--buffered': `${bufferedPercent}%` } as React.CSSProperties}>
-                <div className="seek-rail" aria-hidden="true"><i className="seek-buffered" /><i className="seek-played" /></div>
-                <input
-                  className="seek-slider"
-                  type="range"
-                  min="0"
-                  max={duration || 100}
-                  step="0.1"
-                  value={Math.min(currentTime, duration || 100)}
-                  onChange={(event) => seek(Number(event.target.value))}
-                  aria-label="播放进度"
-                  aria-valuetext={`${formatTime(currentTime)}，已缓冲至 ${formatTime(stats.bufferedEnd)}`}
-                />
-              </div>
               <div className="player-control-row">
                 <div className="player-control-group">
                   <button className="control-button" title={playbackLocked ? '字幕菜单打开时已暂停' : playing ? '暂停' : '播放'} aria-label={playing ? '暂停' : '播放'} disabled={playbackLocked} onClick={togglePlayback}>{playing ? <Pause size={21} /> : <Play size={21} fill="currentColor" />}</button>
                   {onNext && <button className="control-button" title="下一集" aria-label="下一集" onClick={onNext}><SkipForward size={20} /></button>}
                   <button className="control-button" title={muted ? '取消静音' : '静音'} aria-label={muted ? '取消静音' : '静音'} onClick={toggleMuted}>{muted ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>
-                  <input className="volume-slider" type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} onChange={(event) => setVolumeAndUnmute(Number(event.target.value))} aria-label="音量" />
+                  <input className="volume-slider" type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} style={{ '--volume': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties} onChange={(event) => setVolumeAndUnmute(Number(event.target.value))} aria-label="音量" />
                   <span className="time-readout">{formatTime(currentTime)} / {formatTime(duration)}</span>
                   {danmaku && <button className={`control-button ${danmakuVisible ? 'is-active' : ''}`} title={danmakuVisible ? '隐藏弹幕' : '显示弹幕'} aria-label={danmakuVisible ? '隐藏弹幕' : '显示弹幕'} aria-pressed={danmakuVisible} onClick={toggleDanmaku}><MessageCircle size={20} /></button>}
                   {danmaku?.onCompose && <button className="control-button" title="发送弹幕" aria-label="发送弹幕" onClick={danmaku.onCompose}><Send size={19} /></button>}
                 </div>
                 <div className="player-control-group secondary">
-                  {subtitleTracks.length > 0 && <button className={`control-button ${subtitleEnabled ? 'is-active' : ''}`} title={selectedSubtitle ? `字幕：${subtitleLabel(selectedSubtitle)}` : '字幕'} aria-label="字幕" aria-pressed={subtitleEnabled} onClick={toggleSubtitleMenu}><Captions size={20} /></button>}
+                  {subtitleTracks.length > 0 && <button data-subtitle-toggle className={`control-button ${subtitleEnabled ? 'is-active' : ''}`} title={selectedSubtitle ? `字幕：${subtitleLabel(selectedSubtitle)}` : '字幕'} aria-label="字幕" aria-pressed={subtitleEnabled} onClick={toggleSubtitleMenu}><Captions size={20} /></button>}
                   <button className="control-button" title="画中画" aria-label="画中画" onClick={() => void requestPictureInPicture().catch((pipError) => { const message = pipError instanceof Error ? pipError.message : String(pipError); setError(message); propsRef.current.onError?.({ message }) })}><PictureInPicture2 size={20} /></button>
                   <button className={`control-button ${theater ? 'is-active' : ''}`} title="剧场模式" aria-label="剧场模式" aria-pressed={theater} onClick={toggleTheater}><RectangleHorizontal size={20} /></button>
                   <button className={`control-button ${showSettings ? 'is-active' : ''}`} title="设置" aria-label="设置" onClick={() => { const next = !showSettings; setShowSettings(next); closeSubtitleMenu(); showControls(next) }}><Settings size={20} /></button>
                   <button className="control-button" title={fullscreen ? '退出全屏' : '全屏'} aria-label={fullscreen ? '退出全屏' : '全屏'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button>
                 </div>
               </div>
+              <ProgressPreview currentTime={currentTime} duration={duration} bufferedEnd={stats.bufferedEnd} source={source} onSeek={seek} />
             </div>
             {showSettings && <SettingsPanel rate={rate} setRate={(next) => { setRate(next); engineRef.current?.setPlaybackRate(next) }} audioTracks={audioTracks} subtitleTracks={subtitleTracks} audioTrackId={audioTrackId} subtitleTrackId={subtitleTrackId} selectTrack={selectTrack} qualities={qualities} selectedQuality={selectedQuality} onQualityChange={onQualityChange} />}
             {contextMenu.open && <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} onStats={openStats} onAbout={openAbout} />}
@@ -937,6 +950,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
             <span>{stats.stalled ? '缓冲中…' : engineStatus}</span>
             <span>已缓冲 {stats.bufferedAhead.toFixed(1)} 秒</span>
             <span>当前时间 {formatTime(currentTime)}</span>
+            <span className="player-codec-summary">{codecSummary}</span>
           </div>}
         </section>
       </main>
@@ -1042,12 +1056,15 @@ function subtitleLabel(track: TrackInfo) {
   return [track.language, track.name].filter(Boolean).join(' · ') || `字幕轨 ${track.id}`
 }
 
-function safeHostname(value: string) {
-  try { return new URL(value).hostname || '远程 URL' } catch { return '远程 URL' }
+function codecSummaryForTracks(video?: TrackInfo, audio?: TrackInfo) {
+  const parts: string[] = []
+  if (video) parts.push(codecDisplayName(video))
+  if (audio) parts.push(`${codecDisplayName(audio)} · ${audio.channels || 2}ch`)
+  return parts.join(' · ') || '编码待识别'
 }
 
-function clampPercent(value: number) {
-  return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0
+function safeHostname(value: string) {
+  try { return new URL(value).hostname || '远程 URL' } catch { return '远程 URL' }
 }
 
 function formatBytes(value: number) {

@@ -19,6 +19,9 @@ const LOG_LIMIT = 400
 const MESSAGE_MARK = 'mx-playground'
 const MIN_PANE = 18
 const MAX_PANE = 82
+const CDN_SDK_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn'
+const CDN_SDK_JS = `${CDN_SDK_BASE}/mx-player.js`
+const CDN_SDK_CSS = `${CDN_SDK_BASE}/mx-player.css`
 
 /**
  * 注入到预览文档里的桥接脚本。它是普通脚本，一定先于示例代码里的 module 执行，
@@ -258,12 +261,10 @@ export default function Playground({
       title="运行结果"
       srcDoc={preview.doc}
       /**
-       * 不给 allow-same-origin：预览文档始终处于独立的不透明源，拿不到本站的
-       * DOM、cookie 与 localStorage。SDK 的默认 Worker 已内联为 Blob，因此不需要
-       * 为了播放器而放宽沙箱；严格 CSP 若禁止 worker-src blob:，播放器会提示改用
-       * 宿主同源的 workerUrl。
+       * 生产构建使用内联 Blob Worker，可以保持独立 opaque origin。Vite dev
+       * 只能提供同源 Worker URL，所以开发预览需要 allow-same-origin。
        */
-      sandbox="allow-scripts allow-forms allow-modals"
+      sandbox={import.meta.env.PROD ? 'allow-scripts allow-forms allow-modals' : 'allow-scripts allow-forms allow-modals allow-same-origin'}
       allow="fullscreen; autoplay"
     />
   ), [preview.id, preview.doc])
@@ -407,20 +408,40 @@ export default function Playground({
  * <html data-theme>，示例代码的样式表据此选深浅色。
  */
 function buildDocument(code: string, theme: 'dark' | 'light'): string {
+  // The deployed site publishes the same SDK build under /sdk. That keeps the
+  // sandbox aligned with the page build instead of a stale mutable CDN branch.
+  const sdk = resolvePlaygroundSdk()
+  const source = code.replaceAll(CDN_SDK_JS, sdk.js).replaceAll(CDN_SDK_CSS, sdk.css)
   const injected = `<script>${CONSOLE_BRIDGE}</script>`
     + `<script>document.documentElement.dataset.theme = ${JSON.stringify(theme)}</script>`
 
   // 桥接必须排在示例代码的 module 之前，否则头几条日志会漏掉。
-  const head = /<head[^>]*>/i.exec(code)
-  if (head) return splice(code, head.index + head[0].length, injected)
+  const head = /<head[^>]*>/i.exec(source)
+  if (head) return splice(source, head.index + head[0].length, injected)
 
-  const html = /<html[^>]*>/i.exec(code)
-  if (html) return splice(code, html.index + html[0].length, injected)
+  const html = /<html[^>]*>/i.exec(source)
+  if (html) return splice(source, html.index + html[0].length, injected)
 
-  const doctype = /^\s*<!doctype[^>]*>/i.exec(code)
-  if (doctype) return splice(code, doctype[0].length, injected)
+  const doctype = /^\s*<!doctype[^>]*>/i.exec(source)
+  if (doctype) return splice(source, doctype[0].length, injected)
 
-  return injected + code
+  return injected + source
+}
+
+function resolvePlaygroundSdk() {
+  if (!import.meta.env.PROD) {
+    return {
+      js: new URL('/src/index.ts', window.location.origin).href,
+      css: new URL('/src/player.css', window.location.origin).href,
+    }
+  }
+  try {
+    const siteBase = new URL(import.meta.env.BASE_URL, window.location.href)
+    const sdkBase = new URL('sdk/', siteBase).href.replace(/\/$/, '')
+    return { js: `${sdkBase}/mx-player.js`, css: `${sdkBase}/mx-player.css` }
+  } catch {
+    return { js: CDN_SDK_JS, css: CDN_SDK_CSS }
+  }
 }
 
 function splice(source: string, at: number, insert: string): string {

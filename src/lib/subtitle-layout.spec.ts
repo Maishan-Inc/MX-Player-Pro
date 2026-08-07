@@ -19,4 +19,12 @@ describe('subtitle layout regression', () => {
       expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*?\.subtitle-overlay\s*\{\s*bottom:\s*calc\(12% \+ var\(--subtitle-offset, 0%\)\);\s*font-size:\s*calc\(4\.6cqh \* var\(--subtitle-scale, 1\)\);\s*\}/)
     }
   })
+
+  it('keeps edit mode compact with centered vertical resize handles', () => {
+    for (const styles of styleSheets) {
+      expect(styles).toMatch(/\.subtitle-overlay\.is-editing\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*min\(52%, 360px\);[^}]*padding:\s*4px 8px/s)
+      expect(styles).toMatch(/\.subtitle-handle\.is-top\s*\{[^}]*top:\s*-4px/s)
+      expect(styles).toMatch(/\.subtitle-handle\.is-bottom\s*\{[^}]*bottom:\s*-4px/s)
+    }
+  })
 })

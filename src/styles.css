@@ -183,11 +183,9 @@ a { color: inherit; text-decoration: none; }
    height for the position. The same settings therefore look identical windowed and
    fullscreen, which raw pixels and `vw` did not. */
 .subtitle-overlay { position: absolute; z-index: 4; left: 8%; right: 8%; bottom: calc(12% + var(--subtitle-offset, 0%)); display: flex; flex-direction: column; align-items: center; gap: 2px; color: #fff; font-family: var(--subtitle-font, inherit); font-size: calc(4.6cqh * var(--subtitle-scale, 1)); font-weight: 650; line-height: 1.4; text-align: center; text-shadow: 0 1px 3px #000, 1px 0 #000, -1px 0 #000; pointer-events: none; user-select: none; }
-/* While editing, the subtitle becomes a draggable, resizable box (handles are
-   absolutely positioned against it, hence the containing block). The box is sized to
-   the text rather than to the frame — `max-content` with the same 84% ceiling the
-   resting overlay wraps at, centred so it grows evenly from the middle as it scales. */
-.subtitle-overlay.is-editing { position: absolute; z-index: 25; left: 50%; right: auto; width: max-content; max-width: 84%; transform: translateX(-50%); pointer-events: auto; cursor: move; border: 2px dashed rgba(255,255,255,.6); background: rgba(0,0,0,.2); padding: 8px 12px; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.5); touch-action: none; }
+/* While editing, the subtitle becomes a compact draggable, resizable box (handles are
+   absolutely positioned against it, hence the containing block). */
+.subtitle-overlay.is-editing { position: absolute; z-index: 25; left: 50%; right: auto; width: fit-content; max-width: min(52%, 360px); transform: translateX(-50%); pointer-events: auto; cursor: move; border: 1px dashed rgba(255,255,255,.6); background: rgba(0,0,0,.2); padding: 4px 8px; border-radius: 4px; box-shadow: 0 3px 12px rgba(0,0,0,.45); touch-action: none; }
 .subtitle-sample { opacity: .72; }
 .player-controls { position: absolute; z-index: 10; left: 0; right: 0; bottom: 0; min-height: 64px; display: flex; align-items: center; gap: 7px; padding: 9px 13px; background: linear-gradient(to top, rgba(0,0,0,.96), rgba(0,0,0,.78)); color: #fff; opacity: 0; transform: translateY(9px); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
 .player-controls.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
@@ -237,12 +235,10 @@ a { color: inherit; text-decoration: none; }
 .subtitle-menu button.is-selected { color: var(--accent); }
 .context-menu { width: 226px; display: grid; padding: 6px; }
 .menu-separator { height: 1px; margin: 5px 3px; background: rgba(255,255,255,.14); }
-/* Four corner handles for proportional scaling from any direction. */
-.subtitle-handle { position: absolute; width: 11px; height: 11px; border-radius: 50%; background: var(--accent); box-shadow: 0 1px 5px rgba(0,0,0,.7); cursor: nwse-resize; touch-action: none; }
-.subtitle-handle.is-nw { top: -6px; left: -6px; }
-.subtitle-handle.is-ne { top: -6px; right: -6px; cursor: nesw-resize; }
-.subtitle-handle.is-sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
-.subtitle-handle.is-se { bottom: -6px; right: -6px; }
+/* Centered top/bottom handles keep the compact frame easy to grab. */
+.subtitle-handle { position: absolute; left: 50%; width: 42px; height: 5px; border: 1px solid #000; border-radius: 3px; background: var(--accent); box-shadow: 0 1px 5px rgba(0,0,0,.7); cursor: ns-resize; transform: translateX(-50%); touch-action: none; }
+.subtitle-handle.is-top { top: -4px; }
+.subtitle-handle.is-bottom { bottom: -4px; }
 /* Compact bar at the top of the frame, out of the subtitle's way. Buttons are solid
    accent fills matching the selected-track style, not outlined. */
 .subtitle-edit-bar { position: absolute; z-index: 26; left: 50%; top: 13px; transform: translateX(-50%); max-width: calc(100% - 20px); display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid rgba(255,255,255,.22); border-radius: 8px; background: rgba(9,9,9,.96); color: #fff; box-shadow: 0 14px 40px rgba(0,0,0,.6); backdrop-filter: blur(14px); }
@@ -264,6 +260,7 @@ a { color: inherit; text-decoration: none; }
 .player-about > span { color: rgba(255,255,255,.64); font-size: 12px; }
 .player-about > p { margin: 5px 0 0; color: rgba(255,255,255,.8); font-size: 13px; line-height: 1.6; }
 .player-status-line { display: flex; justify-content: space-between; gap: 12px; padding: 10px 2px; color: var(--dim); font-size: 11px; }
+.player-codec-summary { margin-left: auto; color: var(--text); font-weight: 650; white-space: nowrap; }
 
 .site-footer { display: flex; justify-content: center; padding: 19px 16px; border-top: 1px solid var(--line-soft); color: var(--dim); font-size: 11px; text-align: center; }
 
@@ -418,7 +415,8 @@ a { color: inherit; text-decoration: none; }
   .subtitle-menu { right: 8px; bottom: 59px; }
   .subtitle-edit-bar { bottom: 66px; gap: 7px; padding: 7px 8px; }
   .subtitle-edit-hint { display: none; }
-  .player-status-line { padding: 9px 14px; }
+  .player-status-line { flex-wrap: wrap; padding: 9px 14px; }
+  .player-codec-summary { width: 100%; margin-left: 0; text-align: right; }
 }
 
 /* 窄屏放不下三块并排：改成竖排滚动，分隔线收起（此时比例没有意义）。 */
