@@ -427,7 +427,12 @@ export class MatroskaParser {
       if (batch.length && (clusters >= BATCH_MAX_CLUSTERS || spanEnd - spanStart >= BATCH_TARGET_SECONDS)) break
     }
 
-    if (!batch.length) { this.atEnd = true; return [] }
+    // Only reaching the end of the segment latches end-of-stream. Latching on any
+    // empty batch reported eof for a transient empty read too, and the main thread
+    // treats eof as final: its fill loop stopped and playback froze with nothing
+    // buffered instead of recovering on the next request.
+    if (this.cursor >= this.segmentEnd) this.atEnd = true
+    if (!batch.length) return []
     return batch.sort((left, right) => left.timestamp - right.timestamp)
   }
 

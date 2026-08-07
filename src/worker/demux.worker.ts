@@ -4,6 +4,19 @@ import type { DemuxEvent, DemuxRequest, TrackKind } from '../types'
 
 let parser: MatroskaParser | null = null
 let ready = false
+/**
+ * Highest epoch the main thread has issued. Anything below it was superseded by a
+ * later seek, and its reply would be discarded on arrival anyway.
+ */
+let latestEpoch = 0
+/**
+ * Requests are handled one at a time. Every handler awaits range reads, so two
+ * overlapping invocations would interleave across those awaits while sharing the
+ * parser's cursor and end-of-stream flag: a `next` resuming after a `seek` wrote its
+ * own cursor back over the freshly resolved one and could latch end-of-stream, which
+ * wedged the main thread's fill loop with an empty buffer until the next drag.
+ */
+let pending: Promise<void> = Promise.resolve()
 
 function post(event: DemuxEvent) {
   if (event.type === 'packets') {
@@ -12,8 +25,18 @@ function post(event: DemuxEvent) {
   } else self.postMessage(event)
 }
 
-self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
+self.onmessage = (message: MessageEvent<DemuxRequest>) => {
   const request = message.data
+  // Recorded on arrival, not when the handler runs. Requests are handled one at a
+  // time, so a queued request would otherwise never see the newer epochs sitting
+  // behind it and could never tell that it had been superseded.
+  if (request.type === 'init') latestEpoch = 0
+  else if ('epoch' in request && request.epoch > latestEpoch) latestEpoch = request.epoch
+  // A throw inside post() must not break the chain for every later request.
+  pending = pending.then(() => handle(request)).catch(() => undefined)
+}
+
+async function handle(request: DemuxRequest): Promise<void> {
   const epoch = 'epoch' in request ? request.epoch : 0
   try {
     if (request.type === 'init') {
@@ -39,13 +62,22 @@ self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
       }
       return
     }
+    // Spending range reads on a position the viewer has already dragged past only
+    // delays the batch they are waiting for. The superseding request still replies,
+    // so the main thread's in-flight flag is cleared either way.
+    if (epoch < latestEpoch && (request.type === 'next' || request.type === 'seek')) return
     if (request.type === 'seek') {
       post({ type: 'progress', phase: '定位关键帧', value: 0.2 })
       post({ type: 'packets', packets: await parser.packetsFor(request.time), epoch })
     } else if (request.type === 'next') {
       const packets = await parser.next()
       if (packets.length) post({ type: 'packets', packets, epoch })
-      else post({ type: 'eof', epoch })
+      // An empty batch is only the end of the file when the parser actually walked off
+      // the end. Reporting eof for a transient empty read latches the main thread's eof
+      // flag, which stops its fill loop for the rest of the session; an empty batch
+      // just asks it to try again.
+      else if (parser.endOfStream) post({ type: 'eof', epoch })
+      else post({ type: 'packets', packets: [], epoch })
     } else if (request.type === 'select-track') {
       // Subtitle tracks are always demuxed, so switching one is purely a UI change
       // and must not rewind the cursor — doing so replayed audio that had already
