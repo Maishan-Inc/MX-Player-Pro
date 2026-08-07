@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, ArrowUpRight, ChevronDown, Cloud, Moon, Sun } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, ChevronDown, Cloud, FileUp, Moon, Sun } from 'lucide-react'
 import type { SourceDescriptor } from './types'
 import PlayerSurface from './components/PlayerSurface'
 import IntegrationSection from './components/IntegrationSection'
@@ -78,10 +78,14 @@ export default function App() {
             onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
             onDragLeave={() => setDragging(false)}
             onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFile(event.dataTransfer.files[0]) }}
-            aria-label="MX PLAYER PRO 播放器"
+            aria-label="拖入 MKV 文件或点击选择文件"
           >
             <input type="file" accept=".mkv,video/x-matroska" onChange={(event) => acceptFile(event.target.files?.[0])} />
-            <strong id="player-heading" className="empty-player-title">MX PLAYER PRO</strong>
+            <span className="empty-player-prompt">
+              <span className="empty-player-icon" aria-hidden="true"><FileUp size={34} strokeWidth={1.65} /></span>
+              <strong id="player-heading" className="empty-player-title">拖入 MKV 文件</strong>
+              <span className="empty-player-copy">或点击选择文件</span>
+            </span>
           </label>
           <form className="url-form" onSubmit={(event) => { event.preventDefault(); startUrlPlayback() }}>
             <Cloud size={18} aria-hidden="true" />
@@ -270,12 +274,13 @@ function FAQ() {
 }
 
 function SiteHeader({ theme, onToggleTheme }: { theme: 'dark' | 'light'; onToggleTheme: () => void }) {
+  const maishanLogo = theme === 'light' ? 'maishan-on-light.png' : 'maishan-on-dark.png'
   return (
     <header className="topbar">
       <a className="collaboration-logo" href="https://freeanime.org" target="_blank" rel="noreferrer" aria-label="FREEANIME.ORG 与 Maishan Inc.">
         <span className="freeanime-wordmark"><span>FREE</span><strong>ANIME</strong><span>.ORG</span></span>
         <span className="brand-times" aria-hidden="true">×</span>
-        <img src={`${import.meta.env.BASE_URL}brands/maishan-on-dark.png`} alt="Maishan Inc." />
+        <img src={`${import.meta.env.BASE_URL}brands/${maishanLogo}`} alt="Maishan Inc." />
       </a>
       <nav className="topbar-nav" aria-label="外部链接">
         <a href="https://freeanime.org" target="_blank" rel="noreferrer">Freeanime <ArrowUpRight size={13} aria-hidden="true" /></a>

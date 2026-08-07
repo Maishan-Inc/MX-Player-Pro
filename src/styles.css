@@ -48,7 +48,6 @@ a { color: inherit; text-decoration: none; }
 .freeanime-wordmark strong { margin: 0 2px; padding: 2px 4px; border-radius: 2px; background: var(--text); color: var(--bg); font-weight: 900; letter-spacing: -.045em; }
 .brand-times { color: var(--muted); font-size: 18px; line-height: 1; }
 .collaboration-logo img { width: clamp(110px, 12vw, 150px); height: auto; display: block; }
-:root[data-theme="light"] .collaboration-logo img { filter: invert(1); }
 .icon-button, .control-button, .modal-close { border: 0; background: transparent; color: var(--text); display: inline-grid; place-items: center; padding: 0; }
 .icon-button { width: 32px; height: 32px; border-radius: 5px; }
 .icon-button:hover, .control-button:hover, .modal-close:hover { background: var(--line-soft); }
@@ -61,10 +60,15 @@ a { color: inherit; text-decoration: none; }
 .home-main { width: min(1160px, calc(100% - 36px)); margin: 0 auto; flex: 1; padding: clamp(28px, 6vh, 72px) 0 58px; }
 .player-launcher { width: min(1040px, 100%); margin: 0 auto; }
 .home-player-frame { position: relative; aspect-ratio: 16 / 9; min-height: 310px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: #000; display: grid; place-items: center; align-content: center; gap: 10px; color: #fff; text-align: center; cursor: pointer; transition: border-color .18s ease, background .18s ease, transform .18s ease; }
-.home-player-frame:hover, .home-player-frame.is-dragging { border-color: var(--accent); background: #0b110d; }
+.home-player-frame:hover, .home-player-frame.is-dragging { border-color: rgba(183,247,191,.76); background: #07100a; }
 .home-player-frame.is-dragging { transform: scale(1.005); }
 .home-player-frame input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.empty-player-title { font-size: clamp(25px, 5vw, 52px); line-height: 1; letter-spacing: .03em; font-weight: 800; }
+.empty-player-prompt { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 24px; pointer-events: none; }
+.empty-player-icon { width: 64px; height: 64px; display: grid; place-items: center; margin-bottom: 4px; border: 1px solid rgba(255,255,255,.18); border-radius: 50%; background: rgba(255,255,255,.055); color: rgba(255,255,255,.72); box-shadow: 0 10px 30px rgba(0,0,0,.24); transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease; }
+.empty-player-title { font-size: clamp(17px, 2.2vw, 22px); line-height: 1.2; letter-spacing: -.01em; font-weight: 750; }
+.empty-player-copy { color: rgba(255,255,255,.5); font-size: 12px; line-height: 1.4; transition: color .18s ease; }
+.home-player-frame:hover .empty-player-icon, .home-player-frame.is-dragging .empty-player-icon { color: #b7f7bf; border-color: rgba(183,247,191,.56); background: rgba(183,247,191,.08); transform: translateY(-2px); }
+.home-player-frame:hover .empty-player-copy, .home-player-frame.is-dragging .empty-player-copy { color: rgba(255,255,255,.72); }
 .url-form { width: min(900px, 100%); min-height: 54px; margin: 18px auto 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 6px 7px 6px 15px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); }
 .url-form:focus-within { border-color: var(--text); }
 .url-form input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 13px; }
@@ -369,6 +373,11 @@ a { color: inherit; text-decoration: none; }
   .github-mark { width: 16px; height: 16px; }
   .home-main { width: min(100% - 28px, 620px); padding-top: 30px; }
   .home-player-frame { min-height: 205px; border-radius: 6px; }
+  .empty-player-prompt { gap: 6px; padding: 18px; }
+  .empty-player-icon { width: 52px; height: 52px; margin-bottom: 2px; }
+  .empty-player-icon svg { width: 28px; height: 28px; }
+  .empty-player-title { font-size: 16px; }
+  .empty-player-copy { font-size: 11px; }
   .url-form { grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 8px 10px; }
   .url-form .primary-button { grid-column: 1 / -1; width: 100%; }
   .feature-strip { grid-template-columns: repeat(2, 1fr); gap: 18px 14px; margin-top: 42px; }
