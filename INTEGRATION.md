@@ -1,99 +1,124 @@
 # MX Player Pro — 接入文档
 
-纯客户端 Matroska 播放器。浏览器通过 HTTP Range 按需读取 MKV，在 Worker 中解封装，再用 WebCodecs 硬件解码。服务器只托管静态文件，不转码、不代理、不上传。
+MX Player Pro 是纯客户端 Matroska 播放器。浏览器通过 HTTP Range 按需读取 MKV，在 TypeScript Web Worker 中解封装，再用 WebCodecs 解码。服务器不转码、不代理、不上传媒体。
 
 演示站点：<https://player.freeanime.org>
-仓库：<https://github.com/Maishan-Inc/MX-Player-Pro>
 
----
+仓库：<https://github.com/Maishan-Inc/MX-Player-Pro>
 
 ## 运行前提
 
-在写代码之前，这三条决定了播放器能不能跑起来：
-
 | 前提 | 说明 |
 | --- | --- |
-| **必须用 `<script type="module">`** | 播放器内部依赖 `new Worker(..., { type: 'module' })` 和动态 `import()`。这两者在经典脚本里都不工作，因此**不提供** UMD/IIFE 版本，`<script src="...">` 直接引入 + `window.MXPlayer` 的写法用不了。 |
-| **浏览器需支持 WebCodecs** | Chrome / Edge 94+，Safari 16.4+。Firefox 目前不支持 `VideoDecoder`，播放器会报解码器不可用。 |
-| **远端资源需支持 CORS + Range** | 见下方「云端资源要求」。这是最常见的接入失败原因。 |
+| ES module | CDN 接入必须使用 `<script type="module">`，不提供 `window.MXPlayer` 形式的 UMD/IIFE 版本。 |
+| 播放器 CSS | HTML 必须加载 `mx-player.css`；构建工具项目应导入 `mx-player-pro/style.css`。 |
+| WebCodecs | 建议 Chrome/Edge 94+ 或 Safari 16.4+。Firefox 的 WebCodecs 支持情况取决于版本和配置。 |
+| CORS + Range | 远程 MKV 必须允许网页来源跨域读取，并正确响应 HTTP Range。 |
 
----
+## 一、jsDelivr
 
-## 一、CDN 引入（jsDelivr）
-
-最快的方式，无需构建工具。
+生产环境应锁定不可变的 `sdk-v<version>` 标签：
 
 ```html
-<div id="mse" style="width: 100%; aspect-ratio: 16/9;"></div>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.0/mx-player.css">
+<div id="mse" style="width:100%;aspect-ratio:16/9"></div>
 
 <script type="module">
-  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js'
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.0/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
     url: 'https://example.com/video.mkv',
-    localPlayback: true,   // 允许把本地 .mkv 拖进容器播放
+    localPlayback: true,
     autoplay: false,
-    // 从 CDN 引入时必须指定，否则 Worker 会去你自己的域名下找 WASM 而 404
-    wasmBaseUrl: 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/wasm/',
+    volume: 0.85,
   })
 
   player.on('ready', ({ duration, tracks }) => {
-    console.log(`时长 ${duration}s，共 ${tracks.length} 条轨道`)
+    console.log(`时长 ${duration.toFixed(1)}s，共 ${tracks.length} 条轨道`)
     player.play()
   })
   player.on('error', ({ message }) => console.error(message))
 </script>
 ```
 
-### 锁定版本
+`@cdn` 指向最新一次 SDK 构建，适合测试：
 
-`@cdn` 指向最新构建。生产环境建议锁到具体 tag，避免上游更新影响线上：
-
-```js
-import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@v1.0.0/mx-player.js'
+```text
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.css
 ```
 
-> **`wasmBaseUrl` 为什么必填？**
-> Worker 需要加载 Rust 解封装器 `mkv_demuxer.js`。默认它按当前页面的 origin 去找，从 CDN 引入时那是**你的**域名，请求会 404，播放器会静默退回较慢的 TypeScript 解析器。指向 CDN 上的 `wasm/` 目录即可。
+`@cdn` 会变化，生产项目请使用 `@sdk-v1.2.0` 这类不可变标签。
 
----
+### 为什么跨域 SDK 不再触发 Worker 同源错误
 
-## 二、GitHub Pages 自托管
+浏览器通常不允许页面直接执行：
 
-如果你不想依赖第三方 CDN，SDK 已随演示站点一起部署：
+```js
+new Worker('https://另一个域名/demux.worker.js', { type: 'module' })
+```
+
+MX Player Pro 的默认构建已把 Worker 程序内联到 `mx-player.js`。模块从 CDN 下载后，播放器在当前页面创建 Blob URL 并启动 Worker，不再请求 CDN 上的独立 Worker 入口，因此不会出现 `Failed to construct 'Worker'` 的跨域创建错误。
+
+这与媒体文件的 CORS 是两件不同的事：Worker 能创建，不代表网页一定能读取远程 MKV；媒体服务器仍须允许 CORS 和 Range。
+
+### 严格 CSP：使用同源 `workerUrl`
+
+如果站点配置了 CSP，并且 `worker-src` 不允许 `blob:`，请把发布包中的 `mx-player-worker.js` 复制到站点自己的静态目录：
+
+```js
+const player = new MXPlayer({
+  playerElm: '#mse',
+  url: 'https://example.com/video.mkv',
+  workerUrl: '/static/mx-player/mx-player-worker.js',
+})
+```
+
+对应策略至少需要允许该同源 Worker，例如：
+
+```http
+Content-Security-Policy: worker-src 'self'; script-src 'self' https://cdn.jsdelivr.net
+```
+
+默认模式使用 Blob Worker 时，策略应允许 `worker-src 'self' blob:`。
+
+## 二、GitHub Pages / 自托管
+
+演示站点同步提供最新版 SDK：
 
 ```html
+<link rel="stylesheet" href="https://player.freeanime.org/sdk/mx-player.css">
+<div id="mse" style="aspect-ratio:16/9"></div>
 <script type="module">
   import { MXPlayer } from 'https://player.freeanime.org/sdk/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
     url: 'https://example.com/video.mkv',
-    wasmBaseUrl: 'https://player.freeanime.org/sdk/wasm/',
   })
 </script>
 ```
 
-也可以把 `dist-lib/` 整个目录拷到自己服务器的任意路径下，两个 URL 相应替换即可。
+也可以把 `dist-lib/` 放到自己的静态目录。默认 Blob Worker 不要求额外文件；只有严格 CSP 使用 `workerUrl` 时才需要同时部署 `mx-player-worker.js`。
 
-> **不能用 `raw.githubusercontent.com` 直接引入。**
-> 它以 `text/plain` 返回 JS，浏览器会因 MIME 类型不符拒绝当模块执行。要走原始文件必须经过 jsDelivr 这类会修正 Content-Type 的 CDN。
-
----
+不要用 `raw.githubusercontent.com` 直接作为模块入口。它常以 `text/plain` 返回 JavaScript，浏览器会因 MIME 类型不符拒绝执行。
 
 ## 三、npm / 构建工具
 
+从不可变 SDK 标签安装：
+
 ```bash
-npm install github:Maishan-Inc/MX-Player-Pro#cdn
+npm install github:Maishan-Inc/MX-Player-Pro#sdk-v1.2.0
 ```
 
-`#cdn` 分支存放的是 CI 预构建好的产物，安装时不需要 Rust 工具链，也不会在你的机器上跑构建。锁定版本用 `#v1.0.0`。
+测试最新版可把标签改为 `#cdn`。
 
-### 原生 JS / TypeScript
+### 原生 JavaScript / TypeScript
 
 ```ts
 import { MXPlayer } from 'mx-player-pro'
+import 'mx-player-pro/style.css'
 
 const player = new MXPlayer({
   playerElm: '#mse',
@@ -101,40 +126,14 @@ const player = new MXPlayer({
 })
 ```
 
-通过打包器引入时 **不需要** `wasmBaseUrl`：Vite / webpack 会自行处理 Worker 与 WASM 的路径。
-
-### Vue 3
-
-```vue
-<template>
-  <MxPlayer
-    ref="playerRef"
-    :fluid="true"
-    url="https://example.com/video.mkv"
-    :local-playback="true"
-    @ready="onReady"
-    @timeupdate="onTimeUpdate"
-    @error="onError"
-  />
-  <button @click="playerRef?.play()">播放</button>
-</template>
-
-<script setup lang="ts">
-import { ref } from 'vue'
-import { MxPlayer } from 'mx-player-pro/vue'
-
-const playerRef = ref()
-const onReady = ({ duration }) => console.log('时长', duration)
-const onTimeUpdate = ({ currentTime }) => console.log(currentTime)
-const onError = ({ message }) => console.error(message)
-</script>
-```
-
 ### React
+
+React 入口把 React 与 ReactDOM 作为 peer dependency，不会在已有 React 应用里再创建嵌套 root：
 
 ```tsx
 import { useRef } from 'react'
 import { MXPlayerReact, type MXPlayerHandle } from 'mx-player-pro/react'
+import 'mx-player-pro/style.css'
 
 export function Demo() {
   const playerRef = useRef<MXPlayerHandle>(null)
@@ -149,13 +148,38 @@ export function Demo() {
         onReady={({ duration }) => console.log('时长', duration)}
         onError={({ message }) => console.error(message)}
       />
-      <button onClick={() => playerRef.current?.play()}>播放</button>
+      <button onClick={() => playerRef.current?.toggle()}>播放 / 暂停</button>
+      <button onClick={() => playerRef.current?.seek(90)}>跳到 1:30</button>
     </>
   )
 }
 ```
 
----
+### Vue 3
+
+```vue
+<template>
+  <MxPlayer
+    ref="playerRef"
+    fluid
+    url="https://example.com/video.mkv"
+    local-playback
+    @ready="onReady"
+    @error="onError"
+  />
+  <button @click="playerRef?.toggle()">播放 / 暂停</button>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+import { MxPlayer } from 'mx-player-pro/vue'
+import 'mx-player-pro/style.css'
+
+const playerRef = ref<InstanceType<typeof MxPlayer> | null>(null)
+const onReady = ({ duration }: { duration: number }) => console.log(duration)
+const onError = ({ message }: { message: string }) => console.error(message)
+</script>
+```
 
 ## API
 
@@ -163,102 +187,112 @@ export function Demo() {
 
 | 选项 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `playerElm` | `string \| HTMLElement` | — | **必填**。容器选择器或元素 |
-| `url` | `string` | — | 云端 MKV 地址，需支持 CORS 与 Range |
-| `file` | `File` | — | 本地文件，与 `url` 二选一 |
-| `localPlayback` | `boolean` | `false` | 允许拖拽本地 `.mkv` 到容器播放 |
-| `autoplay` | `boolean` | `false` | 元数据就绪后自动播放 |
-| `volume` | `number` | `0.85` | 初始音量 0–1 |
-| `muted` | `boolean` | `false` | 初始静音 |
-| `wasmBaseUrl` | `string` | — | `mkv_demuxer.js` 所在目录，CDN 引入时必填 |
-
-> `autoplay` 受浏览器自动播放策略限制，通常需要同时设置 `muted: true` 才会生效。
+| `playerElm` | `string \| HTMLElement` | — | 必填，播放器容器。 |
+| `url` | `string` | — | 远程 MKV 地址，与 `file` 二选一。 |
+| `file` | `File` | — | 本地 MKV 文件。 |
+| `label` | `string` | 自动推导 | 播放器标题。 |
+| `localPlayback` | `boolean` | `false` | 允许把本地 MKV 拖到播放器。 |
+| `autoplay` | `boolean` | `false` | 元数据就绪后自动播放，仍受浏览器策略限制。 |
+| `volume` | `number` | `0.85` | 初始音量，范围 0–1。 |
+| `muted` | `boolean` | `false` | 初始静音。 |
+| `workerUrl` | `string \| URL` | — | CSP 禁止 Blob Worker 时使用的宿主同源 Worker 地址。 |
+| `onNext` | `() => void` | — | 提供后显示下一集按钮。 |
+| `qualities` | `{ id, label }[]` | `[]` | 宿主提供的清晰度选项。 |
+| `selectedQuality` | `string` | `auto` | 当前清晰度 ID。 |
+| `onQualityChange` | `(id) => void` | — | 清晰度选择回调，实际换源由宿主处理。 |
+| `danmaku` | `object` | — | 可选弹幕显示/输入入口，数据与渲染由宿主负责。 |
+| `onTheaterChange` | `(enabled) => void` | — | 剧场模式变化通知。 |
+| `wasmBaseUrl` | `string` | — | 已废弃；1.x 仅保留类型兼容，当前不会加载 WASM。 |
 
 ### 方法
 
 ```ts
+await player.load({ kind: 'url', url })
+await player.load({ kind: 'file', file })
 player.play()
 player.pause()
 player.toggle()
-player.seek(seconds)
-player.setVolume(0.5)         // 0–1
+player.seek(90)
+player.setVolume(0.5)
 player.setMuted(true)
-player.setPlaybackRate(1.5)   // 0.25–4
+player.setPlaybackRate(1.5)
 player.requestFullscreen()
-player.load({ kind: 'url', url })    // 换源，复用已有实例
-player.load({ kind: 'file', file })
+await player.requestPictureInPicture()
 player.getState()
-player.tracks                 // TrackInfo[]
-player.destroy()              // 释放 Worker、解码器与 DOM
+player.tracks
+player.destroy()
 ```
 
-`getState()` 返回：
+`load()` 会保留已挂载的播放器界面和用户字幕设置，并为新来源重启解析/解码链路。`destroy()` 会终止 Worker、关闭解码器、释放画中画流并卸载界面。
+
+### 状态
 
 ```ts
-{
-  playing: boolean
-  currentTime: number
-  duration: number
-  volume: number
-  muted: boolean
-  bufferedAhead: number   // 已缓冲秒数
-  stalled: boolean        // 是否正在重新缓冲
-  error: string | null
-}
+player.getState()
+// {
+//   ready, playing, currentTime, duration,
+//   volume, muted, playbackRate,
+//   bufferedAhead, stalled, error
+// }
 ```
 
 ### 事件
 
 ```ts
-player.on('ready',      ({ tracks, duration }) => {})
-player.on('play',       () => {})
-player.on('pause',      () => {})
+player.on('ready', ({ tracks, duration }) => {})
+player.on('play', () => {})
+player.on('pause', () => {})
 player.on('timeupdate', ({ currentTime, duration }) => {})
-player.on('ended',      () => {})
-player.on('error',      ({ message }) => {})
+player.on('ended', () => {})
+player.on('error', ({ message }) => {})
+player.on('theaterchange', ({ enabled }) => {})
+player.on('qualitychange', ({ qualityId }) => {})
+player.on('danmakuchange', ({ visible }) => {})
 
 player.off('play', handler)
 ```
 
-`error` 只在**视频**管线失败时触发。音频单独解码失败不会中断播放，文件仍然可看。
-
----
-
 ## 云端资源要求
 
-远端 MKV 必须满足两点，否则浏览器安全策略会阻止纯客户端读取：
+### CORS
 
-**1. 允许跨域**
+媒体服务器应返回类似：
 
-```
-Access-Control-Allow-Origin: https://your-site.com
+```http
+Access-Control-Allow-Origin: https://your-site.example
 Access-Control-Allow-Methods: GET, HEAD, OPTIONS
 Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges
 ```
 
-**2. 支持 Range 请求**，对 `Range: bytes=0-1048575` 返回 `206 Partial Content` 与 `Content-Range`。
+开发阶段可使用 `Access-Control-Allow-Origin: *`，但带 Cookie/Authorization 的请求不能与通配来源凭据混用。
 
-> 「浏览器里能直接下载」不等于「网页能读取」。直接下载不经过 CORS 检查，跨域读取会。这是最常见的接入失败原因。
->
-> 服务器若忽略 `Range` 返回完整响应，播放器会把整个文件读入内存作为兜底（上限 512 MB），首帧会明显变慢。
+### Range
 
----
+对请求：
 
-## 常见问题
+```http
+Range: bytes=0-1048575
+```
 
-**播放器一直转圈 / 报跨域错误**
-按上一节检查响应头。打开 DevTools Network，确认媒体请求返回 `206` 且带 `Access-Control-Allow-Origin`。
+服务器应返回 `206 Partial Content`、`Content-Range` 和正确的 `Content-Length`。如果服务器忽略 Range 并返回整个文件，首帧和 Seek 会明显变慢，超大文件也可能超过浏览器内存兜底限制。
 
-**控制台提示解码器不可用**
-浏览器不支持 WebCodecs 或该编码。目前支持 H.264 视频 + AAC 音频；Firefox 尚不支持 `VideoDecoder`。
+## 常见错误
 
-**从 CDN 引入后播放变慢**
-多半是 `wasmBaseUrl` 没配，退回了 TypeScript 解析器。检查 Network 里 `mkv_demuxer.js` 是否 404。
+### `Failed to construct 'Worker'`
 
-**`Failed to load module script ... MIME type "text/plain"`**
-用了 `raw.githubusercontent.com`。改用 jsDelivr 或自托管。
+旧版 SDK 会直接从 CDN 创建远端 Worker，浏览器在创建阶段因入口不同源而拒绝。升级到包含内联 Worker 的版本。若新版错误信息指出 CSP 禁止 `blob:`，请同源部署 `mx-player-worker.js` 并传入 `workerUrl`。
 
----
+### 媒体请求被 CORS 拒绝或一直转圈
+
+在 DevTools Network 检查 MKV 请求是否返回 `206`，以及响应是否包含允许当前页面来源的 `Access-Control-Allow-Origin`。Worker 同源问题修复后，媒体 CORS 仍必须由媒体服务器配置。
+
+### 解码器不可用
+
+确认浏览器支持 WebCodecs，并确认轨道编码映射受支持。当前播放器主要支持 H.264/HEVC 视频与 AAC 音频；不支持的音频轨不会阻止视频画面继续播放。
+
+### `MIME type "text/plain"`
+
+不要使用 `raw.githubusercontent.com` 作为浏览器模块入口，改用 jsDelivr 或自托管。
 
 ## 许可
 

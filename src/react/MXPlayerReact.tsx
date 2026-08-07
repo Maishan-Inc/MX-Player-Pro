@@ -1,16 +1,27 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import { MXPlayer, type MXPlayerState } from '../sdk/MXPlayer'
-import type { TrackInfo } from '../types'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import PlayerSurface, { type PlayerSurfaceHandle } from '../components/PlayerSurface'
+import type { MXPlayerDanmakuOptions, MXPlayerQuality, MXPlayerState } from '../player-api'
+import type { SourceDescriptor, TrackInfo } from '../types'
+import '../player.css'
 
 export interface MXPlayerProps {
   url?: string
   file?: File
+  label?: string
   autoplay?: boolean
   muted?: boolean
   volume?: number
   localPlayback?: boolean
+  workerUrl?: string | URL
+  /** @deprecated 1.x 兼容参数，播放器已不再加载 WASM。 */
   wasmBaseUrl?: string
-  /** 自适应宽度，宽高比 16:9 */
+  onNext?: () => void
+  qualities?: MXPlayerQuality[]
+  selectedQuality?: string
+  onQualityChange?: (qualityId: string) => void
+  danmaku?: MXPlayerDanmakuOptions
+  onTheaterChange?: (enabled: boolean) => void
+  /** 自适应宽度，宽高比 16:9。 */
   fluid?: boolean
   className?: string
   style?: React.CSSProperties
@@ -31,93 +42,108 @@ export interface MXPlayerHandle {
   setMuted(value: boolean): void
   setPlaybackRate(rate: number): void
   requestFullscreen(): void
+  requestPictureInPicture(): Promise<void>
   getState(): MXPlayerState | undefined
   getTracks(): TrackInfo[]
 }
 
+interface DroppedFileOverride {
+  file: File
+  /** 拖入文件时的受控来源；任一 prop 改变后自动让新 prop 接管。 */
+  baseUrl?: string
+  baseFile?: File
+}
+
 /**
- * React 组件封装。
- *
- * 播放器实例只在挂载时创建一次；换源走 load()，避免重建 Worker 丢掉分片缓存。
- * 事件回调存在 ref 里，父组件每次渲染传新函数也不会重挂播放器。
+ * React 组件直接渲染统一播放器界面，不再通过 MXPlayer 创建嵌套 React root。
+ * prop 换源会让 PlayerSurface 原位重建 Worker/解码器；普通父组件重渲染不会重载媒体。
  */
 export const MXPlayerReact = forwardRef<MXPlayerHandle, MXPlayerProps>(function MXPlayerReact(props, ref) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const playerRef = useRef<MXPlayer | null>(null)
-  const handlersRef = useRef(props)
-  handlersRef.current = props
+  const surfaceRef = useRef<PlayerSurfaceHandle>(null)
+  const [dragging, setDragging] = useState(false)
+  const [dropped, setDropped] = useState<DroppedFileOverride | null>(null)
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const player = new MXPlayer({
-      playerElm: container,
-      url: props.url,
-      file: props.file,
-      autoplay: props.autoplay,
-      muted: props.muted,
-      volume: props.volume,
-      localPlayback: props.localPlayback,
-      wasmBaseUrl: props.wasmBaseUrl,
-    })
-
-    player.on('ready', (payload) => handlersRef.current.onReady?.(payload))
-    player.on('play', () => handlersRef.current.onPlay?.())
-    player.on('pause', () => handlersRef.current.onPause?.())
-    player.on('timeupdate', (payload) => handlersRef.current.onTimeUpdate?.(payload))
-    player.on('ended', () => handlersRef.current.onEnded?.())
-    player.on('error', (payload) => handlersRef.current.onError?.(payload))
-
-    playerRef.current = player
-    return () => {
-      player.destroy()
-      playerRef.current = null
+  const source = useMemo<SourceDescriptor | undefined>(() => {
+    if (dropped && dropped.baseUrl === props.url && dropped.baseFile === props.file) {
+      return { kind: 'file', file: dropped.file }
     }
-    // 只在挂载时建一次；url/file 的后续变化由下面的 effect 走 load()。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    if (props.url) return { kind: 'url', url: props.url }
+    if (props.file) return { kind: 'file', file: props.file }
+    return undefined
+  }, [dropped, props.file, props.url])
 
   useEffect(() => {
-    if (props.url) void playerRef.current?.load({ kind: 'url', url: props.url })
-  }, [props.url])
-
-  useEffect(() => {
-    if (props.file) void playerRef.current?.load({ kind: 'file', file: props.file })
-  }, [props.file])
-
-  useEffect(() => {
-    if (props.volume !== undefined) playerRef.current?.setVolume(props.volume)
+    if (props.volume !== undefined) surfaceRef.current?.setVolume(props.volume)
   }, [props.volume])
 
   useEffect(() => {
-    if (props.muted !== undefined) playerRef.current?.setMuted(props.muted)
+    if (props.muted !== undefined) surfaceRef.current?.setMuted(props.muted)
   }, [props.muted])
 
   useImperativeHandle(ref, () => ({
-    play: () => playerRef.current?.play(),
-    pause: () => playerRef.current?.pause(),
-    toggle: () => playerRef.current?.toggle(),
-    seek: (time: number) => playerRef.current?.seek(time),
-    setVolume: (value: number) => playerRef.current?.setVolume(value),
-    setMuted: (value: boolean) => playerRef.current?.setMuted(value),
-    setPlaybackRate: (rate: number) => playerRef.current?.setPlaybackRate(rate),
-    requestFullscreen: () => playerRef.current?.requestFullscreen(),
-    getState: () => playerRef.current?.getState(),
-    getTracks: () => playerRef.current?.tracks ?? [],
+    play: () => surfaceRef.current?.play(),
+    pause: () => surfaceRef.current?.pause(),
+    toggle: () => surfaceRef.current?.toggle(),
+    seek: (time: number) => surfaceRef.current?.seek(time),
+    setVolume: (value: number) => surfaceRef.current?.setVolume(value),
+    setMuted: (value: boolean) => surfaceRef.current?.setMuted(value),
+    setPlaybackRate: (rate: number) => surfaceRef.current?.setPlaybackRate(rate),
+    requestFullscreen: () => surfaceRef.current?.requestFullscreen(),
+    requestPictureInPicture: () => surfaceRef.current?.requestPictureInPicture() ?? Promise.resolve(),
+    getState: () => surfaceRef.current?.getState(),
+    getTracks: () => surfaceRef.current?.getTracks() ?? [],
   }), [])
+
+  function acceptLocalFile(file: File | undefined) {
+    if (!file || !props.localPlayback) return
+    if (!file.name.toLowerCase().endsWith('.mkv') && file.type !== 'video/x-matroska') {
+      props.onError?.({ message: '请拖入 Matroska (.mkv) 文件。' })
+      return
+    }
+    setDropped({ file, baseUrl: props.url, baseFile: props.file })
+  }
 
   const fluid = props.fluid ?? true
   return (
     <div
-      ref={containerRef}
-      className={props.className ?? 'mxplayer-container'}
+      className={`mxplayer-container ${dragging ? 'mxplayer-dragging' : ''} ${props.className || ''}`.trim()}
       style={{
         background: '#000',
         ...(fluid ? { width: '100%', aspectRatio: '16 / 9' } : {}),
         ...props.style,
       }}
-    />
+      onDragOver={props.localPlayback ? (event) => { event.preventDefault(); setDragging(true) } : undefined}
+      onDragLeave={props.localPlayback ? () => setDragging(false) : undefined}
+      onDrop={props.localPlayback ? (event) => {
+        event.preventDefault()
+        setDragging(false)
+        acceptLocalFile(event.dataTransfer.files[0])
+      } : undefined}
+    >
+      <PlayerSurface
+        ref={surfaceRef}
+        source={source}
+        label={props.label}
+        embedded
+        autoplay={props.autoplay}
+        initialVolume={props.volume}
+        initialMuted={props.muted}
+        workerUrl={props.workerUrl}
+        onNext={props.onNext}
+        qualities={props.qualities}
+        selectedQuality={props.selectedQuality}
+        onQualityChange={props.onQualityChange}
+        danmaku={props.danmaku}
+        onTheaterChange={props.onTheaterChange}
+        onReady={props.onReady}
+        onPlay={props.onPlay}
+        onPause={props.onPause}
+        onTimeUpdate={props.onTimeUpdate}
+        onEnded={props.onEnded}
+        onError={props.onError}
+        style={{ width: '100%', height: '100%' }}
+      />
+    </div>
   )
 })
 

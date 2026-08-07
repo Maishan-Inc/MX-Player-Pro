@@ -17,6 +17,8 @@ export const MxPlayer = defineComponent({
     muted: { type: Boolean, default: false },
     volume: { type: Number, default: 0.85 },
     localPlayback: { type: Boolean, default: false },
+    workerUrl: { type: String, default: undefined },
+    /** @deprecated 1.x 兼容参数，播放器已不再加载 WASM。 */
     wasmBaseUrl: { type: String, default: undefined },
     /** 自适应宽度，宽高比 16:9 */
     fluid: { type: Boolean, default: true },
@@ -36,6 +38,7 @@ export const MxPlayer = defineComponent({
         muted: props.muted,
         volume: props.volume,
         localPlayback: props.localPlayback,
+        workerUrl: props.workerUrl,
         wasmBaseUrl: props.wasmBaseUrl,
       }
       const instance = new MXPlayer(options)
@@ -72,6 +75,7 @@ export const MxPlayer = defineComponent({
       setMuted: (value: boolean) => player.value?.setMuted(value),
       setPlaybackRate: (rate: number) => player.value?.setPlaybackRate(rate),
       requestFullscreen: () => player.value?.requestFullscreen(),
+      requestPictureInPicture: () => player.value?.requestPictureInPicture(),
       getState: (): MXPlayerState | undefined => player.value?.getState(),
       getTracks: (): TrackInfo[] => player.value?.tracks ?? [],
       get player() { return player.value },

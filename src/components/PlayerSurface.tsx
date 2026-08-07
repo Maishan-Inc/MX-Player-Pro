@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import {
   ArrowLeft, BarChart3, Captions, Check, Info, Maximize2, Minimize2,
-  Pause, Play, RectangleHorizontal, RefreshCw, RotateCcw, Settings, Volume2, VolumeX, X,
+  MessageCircle, Pause, PictureInPicture2, Play, RectangleHorizontal, RefreshCw,
+  RotateCcw, Send, Settings, SkipForward, Volume2, VolumeX, X,
 } from 'lucide-react'
 import { activeCues, parseAssBlock, stripAssMarkup, type SubtitleCue } from '../lib/srt'
 import { isAssSubtitle, isTextSubtitle, trackLabel } from '../lib/codec'
@@ -11,9 +12,49 @@ import {
 } from '../lib/subtitle-style'
 import { WebCodecsEngine, type EngineStats } from '../lib/webcodecs'
 import { explainPlaybackError } from '../lib/playback-error'
+import type { MXPlayerDanmakuOptions, MXPlayerQuality, MXPlayerState } from '../player-api'
 import type { DemuxEvent, DemuxRequest, MKVPacket, ProbeInfo, SourceDescriptor, TrackInfo } from '../types'
+import { createDemuxWorker } from '../worker/create-demux-worker'
 
-interface Props { source: SourceDescriptor; label: string; onExit: () => void }
+export interface PlayerSurfaceProps {
+  source?: SourceDescriptor
+  label?: string
+  onExit?: () => void
+  embedded?: boolean
+  autoplay?: boolean
+  initialVolume?: number
+  initialMuted?: boolean
+  workerUrl?: string | URL
+  onReady?: (payload: { tracks: TrackInfo[]; duration: number }) => void
+  onPlay?: () => void
+  onPause?: () => void
+  onTimeUpdate?: (payload: { currentTime: number; duration: number }) => void
+  onEnded?: () => void
+  onError?: (payload: { message: string }) => void
+  onTheaterChange?: (enabled: boolean) => void
+  onNext?: () => void
+  qualities?: MXPlayerQuality[]
+  selectedQuality?: string
+  onQualityChange?: (qualityId: string) => void
+  danmaku?: MXPlayerDanmakuOptions
+  className?: string
+  style?: React.CSSProperties
+}
+
+export interface PlayerSurfaceHandle {
+  play(): void
+  pause(): void
+  toggle(): void
+  seek(time: number): void
+  setVolume(value: number): void
+  setMuted(value: boolean): void
+  setPlaybackRate(rate: number): void
+  requestFullscreen(): void
+  requestPictureInPicture(): Promise<void>
+  getState(): MXPlayerState
+  getTracks(): TrackInfo[]
+}
+
 interface ContextMenuState { open: boolean; x: number; y: number }
 type SubtitlePage = 'track' | 'font'
 
@@ -30,7 +71,13 @@ const EMPTY_STATS: EngineStats = {
   bufferedBytes: 0, stalled: false, droppedFrames: 0,
 }
 
-export default function PlayerSurface({ source, label, onExit }: Props) {
+const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(function PlayerSurface(props, ref) {
+  const {
+    source, label = 'MX Player Pro', onExit, embedded = false, autoplay = false,
+    initialVolume = 0.85, initialMuted = false, workerUrl,
+    onNext, qualities = [], selectedQuality = 'auto', onQualityChange, danmaku,
+    className, style,
+  } = props
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const workerRef = useRef<Worker | null>(null)
@@ -46,11 +93,11 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const longPressFiredRef = useRef(false)
   const [metadata, setMetadata] = useState<{ tracks: TrackInfo[]; duration: number } | null>(null)
   const [probe, setProbe] = useState<ProbeInfo | null>(null)
-  const [progress, setProgress] = useState('正在连接媒体…')
+  const [progress, setProgress] = useState(source ? '正在连接媒体…' : '等待媒体地址')
   const [error, setError] = useState('')
   const [playing, setPlaying] = useState(false)
-  const [muted, setMuted] = useState(false)
-  const [volume, setVolume] = useState(0.85)
+  const [muted, setMuted] = useState(initialMuted)
+  const [volume, setVolume] = useState(clampUnit(initialVolume))
   const [rate, setRate] = useState(1)
   const [currentTime, setCurrentTime] = useState(0)
   const [videoTrackId, setVideoTrackId] = useState<number>()
@@ -62,7 +109,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false)
   const [subtitleMenuPage, setSubtitleMenuPage] = useState<SubtitlePage>('track')
   const [showSubtitleEditor, setShowSubtitleEditor] = useState(false)
-  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>(() => loadSubtitleStyle(subtitleStyleScope(source)))
+  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>(() => loadSubtitleStyle(sourceStyleScope(source)))
   const [controlsVisible, setControlsVisible] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
   const [theater, setTheater] = useState(false)
@@ -71,6 +118,8 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [engineStatus, setEngineStatus] = useState('等待 WebCodecs…')
   const [stats, setStats] = useState<EngineStats>(EMPTY_STATS)
+  const [danmakuVisible, setDanmakuVisible] = useState(danmaku?.visible ?? true)
+  const [reloadToken, setReloadToken] = useState(0)
   const playingRef = useRef(false)
   const videoTrackRef = useRef<number | undefined>(undefined)
   const audioTrackRef = useRef<number | undefined>(undefined)
@@ -87,9 +136,13 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const eventHandlerRef = useRef<(event: DemuxEvent) => void>(() => undefined)
   const pumpRef = useRef<() => void>(() => undefined)
   const durationRef = useRef(0)
-  const styleScopeRef = useRef(subtitleStyleScope(source))
+  const styleScopeRef = useRef(sourceStyleScope(source))
   const wasPausedBeforeEditRef = useRef(false)
   const closeMenuRef = useRef<() => void>(() => undefined)
+  const propsRef = useRef(props)
+  const pipVideoRef = useRef<HTMLVideoElement | null>(null)
+  const pipStreamRef = useRef<MediaStream | null>(null)
+  propsRef.current = props
 
   const videoTracks = metadata?.tracks.filter((track) => track.kind === 'video') || []
   const audioTracks = metadata?.tracks.filter((track) => track.kind === 'audio') || []
@@ -110,15 +163,82 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   pumpRef.current = pump
   closeMenuRef.current = closeSubtitleMenu
 
+  useImperativeHandle(ref, () => ({
+    play: playMedia,
+    pause: pauseMedia,
+    toggle: togglePlayback,
+    seek,
+    setVolume: setVolumeAndUnmute,
+    setMuted: (value) => {
+      setMuted(value)
+      engineRef.current?.setVolume(value ? 0 : volume)
+    },
+    setPlaybackRate: (value) => {
+      const next = Math.max(0.25, Math.min(4, value))
+      setRate(next)
+      engineRef.current?.setPlaybackRate(next)
+    },
+    requestFullscreen: toggleFullscreen,
+    requestPictureInPicture,
+    getState: () => ({
+      ready: readyRef.current,
+      playing: playingRef.current,
+      currentTime: engineRef.current?.currentTime ?? currentTime,
+      duration,
+      volume,
+      muted,
+      playbackRate: rate,
+      bufferedAhead: stats.bufferedAhead,
+      stalled: stats.stalled,
+      error: error || null,
+    }),
+    getTracks: () => metadata?.tracks ?? [],
+  }))
+
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas) return
-    const worker = new Worker(new URL('../worker/demux.worker.ts', import.meta.url), { type: 'module' })
+    if (!canvas || !source) {
+      setMetadata(null)
+      setProbe(null)
+      setProgress('等待媒体地址')
+      setError('')
+      setPlaying(false)
+      setCurrentTime(0)
+      setStats(EMPTY_STATS)
+      return
+    }
+
+    setMetadata(null)
+    setProbe(null)
+    setProgress('正在连接媒体…')
+    setError('')
+    setPlaying(false)
+    playingRef.current = false
+    setCurrentTime(0)
+    setStats(EMPTY_STATS)
+    setCueLines([])
+    cueTextRef.current = ''
+
+    let worker: Worker
+    try {
+      worker = createDemuxWorker(workerUrl)
+    } catch (workerError) {
+      const message = explainPlaybackError(workerError instanceof Error ? workerError.message : String(workerError))
+      setError(message)
+      setProgress('Worker 创建失败')
+      propsRef.current.onError?.({ message })
+      return
+    }
+
     const engine = new WebCodecsEngine(canvas, (status) => {
       setEngineStatus(status.error ? explainPlaybackError(status.error) : `${status.videoReady ? '视频' : '视频不可用'}${status.audioReady ? ' · 音频' : ' · 音频不可用'}`)
       // Only a dead video pipeline is a fatal, overlay-worthy error; audio-only
       // failures leave the file watchable.
-      if (status.error && !/^DECODER_(?:ERROR|UNSUPPORTED)_AUDIO/i.test(status.error)) setError(explainPlaybackError(status.error))
+      if (status.error && !/^DECODER_(?:ERROR|UNSUPPORTED)_AUDIO/i.test(status.error)) {
+        const message = explainPlaybackError(status.error)
+        setError(message)
+        propsRef.current.onError?.({ message })
+      }
     })
     workerRef.current = worker
     engineRef.current = engine
@@ -139,6 +259,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       // reports a frozen value, which is exactly what should be displayed.
       const value = durationRef.current ? Math.min(snapshot.currentTime, durationRef.current) : snapshot.currentTime
       setCurrentTime(value)
+      propsRef.current.onTimeUpdate?.({ currentTime: value, duration: durationRef.current })
       syncCues(value)
       pumpRef.current()
     }, 100)
@@ -150,7 +271,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       workerRef.current = null
       engineRef.current = null
     }
-  }, [source])
+  }, [source, workerUrl, reloadToken])
 
   useEffect(() => {
     function syncFullscreen() { setFullscreen(document.fullscreenElement === frameRef.current) }
@@ -174,6 +295,10 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current)
     if (controlsTimerRef.current !== null) window.clearTimeout(controlsTimerRef.current)
     if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current)
+    pipStreamRef.current?.getTracks().forEach((track) => track.stop())
+    pipStreamRef.current = null
+    pipVideoRef.current?.remove()
+    pipVideoRef.current = null
   }, [])
 
   /**
@@ -183,7 +308,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
    * a save of the value that was just read.
    */
   useEffect(() => {
-    const scope = subtitleStyleScope(source)
+    const scope = sourceStyleScope(source)
     styleScopeRef.current = scope
     setSubtitleStyle(loadSubtitleStyle(scope))
   }, [source])
@@ -222,8 +347,10 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       // Clear the in-flight flag: one transient range failure must not wedge the
       // fill loop for the rest of the session.
       inFlightRef.current = false
-      setError(explainPlaybackError(event.message))
+      const message = explainPlaybackError(event.message)
+      setError(message)
       setProgress('读取失败')
+      propsRef.current.onError?.({ message })
       return
     }
     if (event.type === 'metadata') {
@@ -250,6 +377,12 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       readyRef.current = true
       void engineRef.current?.configure(video, audio)
       engineRef.current?.setVolume(muted ? 0 : volume)
+      propsRef.current.onReady?.({ tracks, duration: event.metadata.duration })
+      if (autoplay) {
+        window.setTimeout(() => {
+          if (!playingRef.current && !playbackLocked) togglePlayback()
+        }, 0)
+      }
       return
     }
     if (event.type === 'packets') {
@@ -268,6 +401,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       eofRef.current = true
       engineRef.current?.markEndOfStream()
       setProgress('已到达文件末端')
+      propsRef.current.onEnded?.()
     }
   }
 
@@ -302,19 +436,34 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     cuesRef.current.set(packet.trackId, existing)
   }
 
+  function playMedia() {
+    if (playbackLocked || !readyRef.current || !engineRef.current || playingRef.current) {
+      showControls(playbackLocked)
+      return
+    }
+    setPlaying(true)
+    playingRef.current = true
+    engineRef.current.play()
+    pump()
+    propsRef.current.onPlay?.()
+    showControls()
+  }
+
+  function pauseMedia() {
+    if (!engineRef.current || !playingRef.current) return
+    setPlaying(false)
+    playingRef.current = false
+    engineRef.current.pause()
+    propsRef.current.onPause?.()
+    showControls()
+  }
+
   function togglePlayback() {
     // While the subtitle menu or its editor is open the picture is deliberately frozen,
     // so every route to playback — button, space bar, surface click — is inert.
     if (playbackLocked) { showControls(true); return }
-    const nextPlaying = !playing
-    setPlaying(nextPlaying)
-    playingRef.current = nextPlaying
-    if (nextPlaying) {
-      engineRef.current?.play()
-      pump()
-    } else {
-      engineRef.current?.pause()
-    }
+    if (playingRef.current) pauseMedia()
+    else playMedia()
     showControls()
   }
 
@@ -364,6 +513,45 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     if (!element) return
     if (document.fullscreenElement) void document.exitFullscreen()
     else void element.requestFullscreen()
+  }
+
+  async function requestPictureInPicture() {
+    const canvas = canvasRef.current as (HTMLCanvasElement & { captureStream?: (frameRate?: number) => MediaStream }) | null
+    const pictureDocument = document as Document & { pictureInPictureElement?: Element | null; exitPictureInPicture?: () => Promise<void> }
+    if (pictureDocument.pictureInPictureElement) {
+      await pictureDocument.exitPictureInPicture?.()
+      return
+    }
+    if (!canvas?.captureStream) throw new Error('当前浏览器不支持 Canvas 画中画。')
+
+    let video = pipVideoRef.current as (HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }) | null
+    if (!video) {
+      video = document.createElement('video') as HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }
+      video.muted = true
+      video.playsInline = true
+      video.style.display = 'none'
+      document.body.appendChild(video)
+      pipVideoRef.current = video
+    }
+    pipStreamRef.current?.getTracks().forEach((track) => track.stop())
+    const stream = canvas.captureStream(30)
+    pipStreamRef.current = stream
+    video.srcObject = stream
+    await video.play()
+    if (!video.requestPictureInPicture) throw new Error('当前浏览器不支持画中画。')
+    await video.requestPictureInPicture()
+  }
+
+  function toggleTheater() {
+    const next = !theater
+    setTheater(next)
+    propsRef.current.onTheaterChange?.(next)
+  }
+
+  function toggleDanmaku() {
+    const next = !danmakuVisible
+    setDanmakuVisible(next)
+    danmaku?.onToggle?.(next)
   }
 
   function showControls(pinned = false) {
@@ -508,6 +696,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
     setPlaying(false)
     playingRef.current = false
     engineRef.current?.pause()
+    propsRef.current.onPause?.()
   }
 
   function closeSubtitleMenu() {
@@ -519,6 +708,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
       playingRef.current = true
       engineRef.current?.play()
       pump()
+      propsRef.current.onPlay?.()
     }
     showControls()
   }
@@ -607,7 +797,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   }
 
   const statsRows: Array<[string, string]> = [
-    ['源', source.kind === 'file' ? '本地文件' : safeHostname(label)],
+    ['源', source?.kind === 'file' ? '本地文件' : source ? safeHostname(label) : '未加载'],
     ['状态', stats.stalled ? '缓冲中' : progress],
     ['HTTP', String(probe?.status || '--')],
     ['CORS', probe?.cors === 'ok' ? '允许' : probe?.cors === 'blocked' ? '阻断' : '未知'],
@@ -626,13 +816,16 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
   const bufferedPercent = clampPercent((Math.min(Math.max(stats.bufferedEnd, currentTime), scale) / scale) * 100)
 
   return (
-    <div className={`player-page ${theater ? 'is-theater' : ''}`}>
-      <header className="player-topbar">
+    <div
+      className={`${embedded ? 'mx-player-embed' : 'player-page'} ${theater ? 'is-theater' : ''} ${className || ''}`.trim()}
+      style={style}
+    >
+      {!embedded && <header className="player-topbar">
         <button className="back-button" onClick={onExit}><ArrowLeft size={18} aria-hidden="true" /> <span>重新选择</span></button>
         <div className="player-title" title={label}>{label}</div>
         <div className="player-topbar-right"><span className="status-dot"><i /> {progress}</span></div>
-      </header>
-      <main className="player-layout">
+      </header>}
+      <main className={embedded ? 'mx-player-embed-main' : 'player-layout'}>
         <section className="player-column">
           <div
             ref={frameRef}
@@ -654,7 +847,7 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
             {metadata && !error && stats.stalled && (
               <div className="player-buffering" data-player-control><span className="spinner" /><strong>缓冲中…</strong></div>
             )}
-            {error && <div className="player-error" data-player-control><strong>无法播放此媒体</strong><span>{error}</span><button className="secondary-button" onClick={() => window.location.reload()}><RefreshCw size={15} /> 重新读取</button></div>}
+            {error && <div className="player-error" data-player-control><strong>无法播放此媒体</strong><span>{error}</span>{source && <button className="secondary-button" onClick={() => setReloadToken((value) => value + 1)}><RefreshCw size={15} /> 重新读取</button>}</div>}
             {(cueLines.length > 0 || showSubtitleEditor) && (
               <div
                 className={`subtitle-overlay ${showSubtitleEditor ? 'is-editing' : ''}`}
@@ -704,8 +897,6 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
               />
             )}
             <div className={`player-controls ${controlsVisible ? 'is-visible' : ''}`} data-player-control onClick={(event) => event.stopPropagation()}>
-              <button className="control-button" title={playbackLocked ? '字幕菜单打开时已暂停' : playing ? '暂停' : '播放'} aria-label={playing ? '暂停' : '播放'} disabled={playbackLocked} onClick={togglePlayback}>{playing ? <Pause size={21} /> : <Play size={21} fill="currentColor" />}</button>
-              <span className="time-readout">{formatTime(currentTime)} / {formatTime(duration)}</span>
               <div className="seek-shell" style={{ '--played': `${playedPercent}%`, '--buffered': `${bufferedPercent}%` } as React.CSSProperties}>
                 <div className="seek-rail" aria-hidden="true"><i className="seek-buffered" /><i className="seek-played" /></div>
                 <input
@@ -720,26 +911,40 @@ export default function PlayerSurface({ source, label, onExit }: Props) {
                   aria-valuetext={`${formatTime(currentTime)}，已缓冲至 ${formatTime(stats.bufferedEnd)}`}
                 />
               </div>
-              <button className="control-button" title={muted ? '取消静音' : '静音'} aria-label={muted ? '取消静音' : '静音'} onClick={toggleMuted}>{muted ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>
-              <input className="volume-slider" type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} onChange={(event) => setVolumeAndUnmute(Number(event.target.value))} aria-label="音量" />
-              {subtitleTracks.length > 0 && <button className={`control-button ${subtitleEnabled ? 'is-active' : ''}`} title={selectedSubtitle ? `字幕：${subtitleLabel(selectedSubtitle)}` : '字幕'} aria-label="字幕" aria-pressed={subtitleEnabled} onClick={toggleSubtitleMenu}><Captions size={20} /></button>}
-              <button className={`control-button ${showSettings ? 'is-active' : ''}`} title="设置" aria-label="设置" onClick={() => { const next = !showSettings; setShowSettings(next); closeSubtitleMenu(); showControls(next) }}><Settings size={20} /></button>
-              <button className={`control-button ${theater ? 'is-active' : ''}`} title="剧场模式" aria-label="剧场模式" aria-pressed={theater} onClick={() => setTheater((value) => !value)}><RectangleHorizontal size={20} /></button>
-              <button className="control-button" title={fullscreen ? '退出全屏' : '全屏'} aria-label={fullscreen ? '退出全屏' : '全屏'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button>
+              <div className="player-control-row">
+                <div className="player-control-group">
+                  <button className="control-button" title={playbackLocked ? '字幕菜单打开时已暂停' : playing ? '暂停' : '播放'} aria-label={playing ? '暂停' : '播放'} disabled={playbackLocked} onClick={togglePlayback}>{playing ? <Pause size={21} /> : <Play size={21} fill="currentColor" />}</button>
+                  {onNext && <button className="control-button" title="下一集" aria-label="下一集" onClick={onNext}><SkipForward size={20} /></button>}
+                  <button className="control-button" title={muted ? '取消静音' : '静音'} aria-label={muted ? '取消静音' : '静音'} onClick={toggleMuted}>{muted ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>
+                  <input className="volume-slider" type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} onChange={(event) => setVolumeAndUnmute(Number(event.target.value))} aria-label="音量" />
+                  <span className="time-readout">{formatTime(currentTime)} / {formatTime(duration)}</span>
+                  {danmaku && <button className={`control-button ${danmakuVisible ? 'is-active' : ''}`} title={danmakuVisible ? '隐藏弹幕' : '显示弹幕'} aria-label={danmakuVisible ? '隐藏弹幕' : '显示弹幕'} aria-pressed={danmakuVisible} onClick={toggleDanmaku}><MessageCircle size={20} /></button>}
+                  {danmaku?.onCompose && <button className="control-button" title="发送弹幕" aria-label="发送弹幕" onClick={danmaku.onCompose}><Send size={19} /></button>}
+                </div>
+                <div className="player-control-group secondary">
+                  {subtitleTracks.length > 0 && <button className={`control-button ${subtitleEnabled ? 'is-active' : ''}`} title={selectedSubtitle ? `字幕：${subtitleLabel(selectedSubtitle)}` : '字幕'} aria-label="字幕" aria-pressed={subtitleEnabled} onClick={toggleSubtitleMenu}><Captions size={20} /></button>}
+                  <button className="control-button" title="画中画" aria-label="画中画" onClick={() => void requestPictureInPicture().catch((pipError) => { const message = pipError instanceof Error ? pipError.message : String(pipError); setError(message); propsRef.current.onError?.({ message }) })}><PictureInPicture2 size={20} /></button>
+                  <button className={`control-button ${theater ? 'is-active' : ''}`} title="剧场模式" aria-label="剧场模式" aria-pressed={theater} onClick={toggleTheater}><RectangleHorizontal size={20} /></button>
+                  <button className={`control-button ${showSettings ? 'is-active' : ''}`} title="设置" aria-label="设置" onClick={() => { const next = !showSettings; setShowSettings(next); closeSubtitleMenu(); showControls(next) }}><Settings size={20} /></button>
+                  <button className="control-button" title={fullscreen ? '退出全屏' : '全屏'} aria-label={fullscreen ? '退出全屏' : '全屏'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button>
+                </div>
+              </div>
             </div>
-            {showSettings && <SettingsPanel rate={rate} setRate={(next) => { setRate(next); engineRef.current?.setPlaybackRate(next) }} audioTracks={audioTracks} subtitleTracks={subtitleTracks} audioTrackId={audioTrackId} subtitleTrackId={subtitleTrackId} selectTrack={selectTrack} />}
+            {showSettings && <SettingsPanel rate={rate} setRate={(next) => { setRate(next); engineRef.current?.setPlaybackRate(next) }} audioTracks={audioTracks} subtitleTracks={subtitleTracks} audioTrackId={audioTrackId} subtitleTrackId={subtitleTrackId} selectTrack={selectTrack} qualities={qualities} selectedQuality={selectedQuality} onQualityChange={onQualityChange} />}
             {contextMenu.open && <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} onStats={openStats} onAbout={openAbout} />}
           </div>
-          <div className="player-status-line">
+          {!embedded && <div className="player-status-line">
             <span>{stats.stalled ? '缓冲中…' : engineStatus}</span>
             <span>已缓冲 {stats.bufferedAhead.toFixed(1)} 秒</span>
             <span>当前时间 {formatTime(currentTime)}</span>
-          </div>
+          </div>}
         </section>
       </main>
     </div>
   )
-}
+})
+
+export default PlayerSurface
 
 function ContextMenu({ x, y, onClose, onStats, onAbout }: { x: number; y: number; onClose: () => void; onStats: () => void; onAbout: () => void }) {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -825,8 +1030,8 @@ function AboutPanel({ onClose }: { onClose: () => void }) {
   return <section className="player-modal player-about" data-player-control><button className="modal-close" title="关闭" aria-label="关闭" onClick={onClose}><X size={17} /></button><strong>MX Player</strong><span>v{PLAYER_VERSION}</span><p>纯客户端 Matroska 播放器。文件和链接只在本机读取，视频帧由 WebCodecs 输出。</p></section>
 }
 
-function SettingsPanel({ rate, setRate, audioTracks, subtitleTracks, audioTrackId, subtitleTrackId, selectTrack }: { rate: number; setRate: (value: number) => void; audioTracks: TrackInfo[]; subtitleTracks: TrackInfo[]; audioTrackId?: number; subtitleTrackId: number | null; selectTrack: (kind: 'audio' | 'subtitle', id: number | null) => void }) {
-  return <div className="settings-panel" data-player-control><label><span>播放速度</span><select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map((value) => <option value={value} key={value}>{value}×</option>)}</select></label><label><span>音频轨</span><select value={audioTrackId ?? ''} onChange={(event) => selectTrack('audio', event.target.value ? Number(event.target.value) : null)}><option value="">自动</option>{audioTracks.map((track) => <option value={track.id} key={track.id}>{trackLabel(track)}</option>)}</select></label>{subtitleTracks.length > 0 && <label><span>字幕轨</span><select value={subtitleTrackId ?? ''} onChange={(event) => selectTrack('subtitle', event.target.value ? Number(event.target.value) : null)}><option value="">关闭</option>{subtitleTracks.map((track) => <option value={track.id} key={track.id}>{subtitleLabel(track)}</option>)}</select></label>}</div>
+function SettingsPanel({ rate, setRate, audioTracks, subtitleTracks, audioTrackId, subtitleTrackId, selectTrack, qualities, selectedQuality, onQualityChange }: { rate: number; setRate: (value: number) => void; audioTracks: TrackInfo[]; subtitleTracks: TrackInfo[]; audioTrackId?: number; subtitleTrackId: number | null; selectTrack: (kind: 'audio' | 'subtitle', id: number | null) => void; qualities: MXPlayerQuality[]; selectedQuality: string; onQualityChange?: (qualityId: string) => void }) {
+  return <div className="settings-panel" data-player-control><label><span>播放速度</span><select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map((value) => <option value={value} key={value}>{value}×</option>)}</select></label>{qualities.length > 0 && <label><span>清晰度</span><select value={selectedQuality} onChange={(event) => onQualityChange?.(event.target.value)}><option value="auto">自动</option>{qualities.map((quality) => <option value={quality.id} key={quality.id}>{quality.label}</option>)}</select></label>}<label><span>音频轨</span><select value={audioTrackId ?? ''} onChange={(event) => selectTrack('audio', event.target.value ? Number(event.target.value) : null)}><option value="">自动</option>{audioTracks.map((track) => <option value={track.id} key={track.id}>{trackLabel(track)}</option>)}</select></label>{subtitleTracks.length > 0 && <label><span>字幕轨</span><select value={subtitleTrackId ?? ''} onChange={(event) => selectTrack('subtitle', event.target.value ? Number(event.target.value) : null)}><option value="">关闭</option>{subtitleTracks.map((track) => <option value={track.id} key={track.id}>{subtitleLabel(track)}</option>)}</select></label>}</div>
 }
 
 function isPlayerControl(target: EventTarget | null) {
@@ -858,4 +1063,12 @@ function formatTime(value: number) {
   const minutes = Math.floor((total % 3600) / 60)
   const seconds = total % 60
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}` : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function sourceStyleScope(source?: SourceDescriptor) {
+  return source ? subtitleStyleScope(source) : 'unknown-host'
+}
+
+function clampUnit(value: number) {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0.85
 }

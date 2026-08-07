@@ -1,7 +1,7 @@
 {
   "name": "mx-player-pro",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.2.0",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -15,16 +15,16 @@
     ".": "./dist-lib/mx-player.js",
     "./vue": "./dist-lib/mx-player-vue.js",
     "./react": "./dist-lib/mx-player-react.js",
-    "./wasm/*": "./dist-lib/wasm/*"
+    "./worker.js": "./dist-lib/mx-player-worker.js",
+    "./style.css": "./dist-lib/mx-player.css"
   },
   "scripts": {
     "dev": "vite",
-    "build": "pnpm build:wasm && tsc -b && vite build",
-    "build:lib": "pnpm build:wasm && tsc -b && node scripts/build-lib.mjs",
+    "build": "tsc -b && vite build",
+    "build:lib": "tsc -b && node scripts/build-lib.mjs",
     "preview": "vite preview",
     "test": "vitest run",
-    "lint": "tsc -b --pretty false",
-    "build:wasm": "node scripts/build-wasm.mjs"
+    "lint": "tsc -b --pretty false"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

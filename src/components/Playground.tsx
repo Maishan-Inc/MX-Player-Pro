@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Ban, Copy, Check, Moon, Play, RotateCcw, ShieldAlert, Sun } from 'lucide-react'
+import { ArrowLeft, Ban, Copy, Check, Moon, Play, RotateCcw, Sun } from 'lucide-react'
 import STARTER_CODE from './playground-starter.html?raw'
 import { tokenize } from '../lib/highlight'
 
@@ -85,8 +85,6 @@ export default function Playground({
   const [preview, setPreview] = useState(() => ({ id: 0, code: STARTER_CODE, doc: buildDocument(STARTER_CODE, theme) }))
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [copied, setCopied] = useState(false)
-  const [sameOrigin, setSameOrigin] = useState(false)
-  const [sandboxBlocked, setSandboxBlocked] = useState(false)
   /** 两条分隔线的位置，按百分比存，拖动时直接改这两个数。 */
   const [columnSplit, setColumnSplit] = useState(50)
   const [rowSplit, setRowSplit] = useState(62)
@@ -124,7 +122,6 @@ export default function Playground({
 
   const run = useCallback(() => {
     setLogs([])
-    setSandboxBlocked(false)
     stickToBottom.current = true
     setPreview((current) => ({
       id: current.id + 1,
@@ -140,9 +137,6 @@ export default function Playground({
       if (event.source !== frameRef.current?.contentWindow) return
       const level = data.level ?? 'log'
       append(level, data.text)
-      // 预览文档处于不透明源时构造 Worker 会被拦下，播放器完全跑不起来。
-      // 认出这种失败，给一个切到同源模式重跑的入口。
-      if (level === 'error' && /worker|sandbox|securityerror|opaque/i.test(data.text)) setSandboxBlocked(true)
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
@@ -175,7 +169,6 @@ export default function Playground({
   function reset() {
     setCode(STARTER_CODE)
     setLogs([])
-    setSandboxBlocked(false)
     setPreview((current) => ({
       id: current.id + 1,
       code: STARTER_CODE,
@@ -265,16 +258,15 @@ export default function Playground({
       title="运行结果"
       srcDoc={preview.doc}
       /**
-       * 默认不给 allow-same-origin：预览文档处于独立的不透明源，拿不到本站的
-       * DOM、cookie 与 localStorage。代价是浏览器也会连带拒绝构造 Worker，
-       * 而播放器离不开它 —— 真撞上了就由用户点一下切到同源模式。
+       * 不给 allow-same-origin：预览文档始终处于独立的不透明源，拿不到本站的
+       * DOM、cookie 与 localStorage。SDK 的默认 Worker 已内联为 Blob，因此不需要
+       * 为了播放器而放宽沙箱；严格 CSP 若禁止 worker-src blob:，播放器会提示改用
+       * 宿主同源的 workerUrl。
        */
-      sandbox={sameOrigin
-        ? 'allow-scripts allow-same-origin allow-forms allow-modals'
-        : 'allow-scripts allow-forms allow-modals'}
+      sandbox="allow-scripts allow-forms allow-modals"
       allow="fullscreen; autoplay"
     />
-  ), [preview.id, preview.doc, sameOrigin])
+  ), [preview.id, preview.doc])
 
   return (
     <div className="app-shell playground-page">
@@ -384,14 +376,6 @@ export default function Playground({
                 </button>
               </div>
             </div>
-
-            {sandboxBlocked && !sameOrigin && (
-              <div className="playground-notice">
-                <ShieldAlert size={14} aria-hidden="true" />
-                <span>预览沙箱挡住了解封装 Worker。同源模式会让预览文档拿到本站的源，仅用于调试自己的代码。</span>
-                <button onClick={() => { setSameOrigin(true); run() }}>以同源模式重跑</button>
-              </div>
-            )}
 
             <div
               className="playground-console"

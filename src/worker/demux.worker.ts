@@ -1,6 +1,5 @@
 import { MatroskaParser } from './ebml'
 import { RangeLoader } from '../lib/range-loader'
-import { loadRustDemuxer } from './wasm-runtime'
 import type { DemuxEvent, DemuxRequest, TrackKind } from '../types'
 
 let parser: MatroskaParser | null = null
@@ -19,10 +18,9 @@ self.onmessage = async (message: MessageEvent<DemuxRequest>) => {
   try {
     if (request.type === 'init') {
       ready = false
-      const wasm = await loadRustDemuxer(request.wasmBaseUrl)
       const loader = new RangeLoader(request.source)
-      parser = new MatroskaParser(loader, wasm)
-      post({ type: 'progress', phase: wasm.available ? '加载 Rust WASM 解封装器' : '加载本地解封装器', value: 0.08 })
+      parser = new MatroskaParser(loader)
+      post({ type: 'progress', phase: '加载 TypeScript 解封装器', value: 0.08 })
       post({ type: 'progress', phase: '读取 Matroska 头部', value: 0.1 })
       const metadata = await parser.init()
       post({ type: 'metadata', metadata, probe: loader.probeInfo })

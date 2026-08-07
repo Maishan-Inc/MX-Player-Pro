@@ -7,7 +7,7 @@ on:
       version:
         description: '版本号（例如 1.0.0，不带 v 前缀）'
         required: true
-        default: '1.0.0'
+        default: '1.2.0'
         type: string
       deploy_pages:
         description: '同时部署到 GitHub Pages'
@@ -33,15 +33,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Install wasm-pack
-        run: cargo install wasm-pack --version 0.15.0 --locked
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build:wasm
-        env:
-          REQUIRE_WASM: '1'
       - run: pnpm test
       - run: pnpm build
       - run: pnpm build:lib
@@ -63,15 +55,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Install wasm-pack
-        run: cargo install wasm-pack --version 0.15.0 --locked
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build:wasm
-        env:
-          REQUIRE_WASM: '1'
       - run: pnpm build
       - name: Build embeddable SDK
         run: pnpm build:lib

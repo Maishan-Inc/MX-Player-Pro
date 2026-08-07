@@ -103,7 +103,7 @@ export default function App() {
           <Feature title="Range 读取" text="按需请求，不把长片一次性下载。" />
           <Feature title="硬件解码" text="VideoDecoder 与 AudioDecoder 直连 GPU。" />
           <Feature title="零上传" text="文件和链接只在本机处理。" />
-          <Feature title="WASM 解封装" text="Rust 编译的 Matroska 解析器跑在 Worker 里。" />
+          <Feature title="Worker 解封装" text="TypeScript Matroska 解析器在独立线程运行。" />
           <Feature title="字幕渲染" text="SRT 与 ASS 文本轨道，字号、位置可调。" />
           <Feature title="多轨切换" text="视频、音频、字幕轨道随时切换。" />
         </section>
@@ -133,7 +133,7 @@ function WhyChoose() {
     },
     {
       title: '最前沿的 Web 音视频栈',
-      text: 'WebCodecs + Rust/WASM + Web Worker + Range 流式读取，全部跑在标准浏览器 API 上，无插件、无 Flash、无服务端转码。',
+      text: 'WebCodecs + TypeScript Matroska 解析器 + Web Worker + Range 流式读取，全部跑在标准浏览器 API 上，无插件、无 Flash、无服务端转码。',
     },
     {
       title: '端到端本地处理',
@@ -172,8 +172,8 @@ function HowItWorks() {
     },
     {
       step: '02',
-      title: 'Rust/WASM 解封装',
-      text: 'Matroska 解析器用 Rust 写成、编译为 WebAssembly，运行在独立的 Web Worker 里。解析 EBML 结构、切分 SimpleBlock、还原时间戳全部离开主线程，UI 不掉帧。',
+      title: 'Worker 解封装',
+      text: 'TypeScript Matroska 解析器运行在独立 Web Worker 里。解析 EBML 结构、切分 SimpleBlock、还原时间戳全部离开主线程；Worker 已内联到 SDK，不再额外下载 WASM 或远端 Worker 文件。',
     },
     {
       step: '03',
@@ -212,8 +212,12 @@ function FAQ() {
   const [openQa, setOpenQa] = useState<number | null>(0)
   const items = [
     {
-      q: '为什么必须传 wasmBaseUrl？',
-      a: '解封装 Worker 用相对路径加载 mkv_demuxer.js。从 CDN 引入时，这个相对路径会落到你自己的域名下并 404，播放器会静默退回较慢的 TypeScript 解析器。显式指定 wasmBaseUrl 指向 CDN 的 wasm/ 目录即可。',
+      q: '为什么从 jsDelivr 引入不会再触发 Worker 同源限制？',
+      a: '浏览器禁止网页直接用 new Worker() 启动另一个来源的脚本。MX Player Pro 会把 Worker 程序随 SDK 一起下载，再在当前页面创建 Blob URL，因此 Worker 属于页面自己的执行上下文，不会请求 cdn.jsdelivr.net 上的独立 Worker 文件。若站点 CSP 禁止 worker-src blob:，可把发布包中的 Worker 文件部署到本站并配置 workerUrl。',
+    },
+    {
+      q: '已经使用 WebCodecs，为什么还需要 Worker？需要 WASM 吗？',
+      a: 'WebCodecs 负责解码 H.264、HEVC、AAC 等压缩轨道，但它不认识 MKV 容器。播放器仍要先解析 EBML、Tracks、Cluster 和 Block，再把裸流交给 WebCodecs。这个解封装过程由 TypeScript 在 Worker 中完成；当前实现不依赖 WASM，旧的 wasmBaseUrl 仅为 1.x 类型兼容保留且不会生效。',
     },
     {
       q: '远端 MKV 有什么要求？',

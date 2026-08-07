@@ -16,7 +16,8 @@ const MESSAGES: Array<[RegExp, string | ((detail: string) => string)]> = [
   [/^MKV_NO_CLUSTER(?:$|:)/i, '文件中没有找到可播放的 Cluster 数据。'],
   [/^MKV_SEGMENT_NOT_FOUND(?:$|:)/i, '不是有效的 Matroska 文件：找不到 Segment 结构。'],
   [/^MKV_TRACKS_NOT_FOUND(?:$|:)/i, '文件中没有找到任何音视频轨道信息。'],
-  [/^WASM_EBML_PROBE_FAILED(?:$|:)/i, '文件头不是有效的 EBML/Matroska 结构，请确认这是 MKV 文件。'],
+  [/^MKV_EBML_HEADER_INVALID(?:$|:)/i, '文件头不是有效的 EBML/Matroska 结构，请确认这是 MKV 文件。'],
+  [/^WORKER_CREATE_FAILED(?:$|:)/i, '解封装 Worker 创建失败。若站点的内容安全策略禁止 blob: Worker，请在播放器配置中提供同源 workerUrl。'],
 ]
 
 export function explainPlaybackError(message: string) {

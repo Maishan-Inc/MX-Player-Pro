@@ -352,14 +352,6 @@ a { color: inherit; text-decoration: none; }
 :root[data-theme="light"] .playground-log.is-warn { border-left-color: #8a5b00; }
 :root[data-theme="light"] .playground-log.is-warn .playground-log-text { color: #8a5b00; }
 :root[data-theme="light"] .playground-log.is-error { background: rgba(179,45,34,.07); }
-/* 沙箱拦下 Worker 时才出现的提示条。 */
-.playground-notice { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid var(--line-soft); background: rgba(255,120,131,.08); color: var(--text); font-size: 11.5px; line-height: 1.5; }
-:root[data-theme="light"] .playground-notice { background: rgba(179,45,34,.08); }
-.playground-notice > svg { flex: 0 0 auto; color: var(--pg-danger); }
-.playground-notice > span { min-width: 0; color: var(--muted); }
-.playground-notice button { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--text); padding: 5px 9px; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.playground-notice button:hover { border-color: var(--text); }
-
 .player-page { min-height: 100vh; background: var(--bg); }
 
 @media (max-width: 760px) {

@@ -8,7 +8,7 @@ on:
       version:
         description: '版本号（例如 1.0.0，不带 v 前缀）'
         required: true
-        default: '1.0.0'
+        default: '1.2.0'
         type: string
       tag:
         description: 'Git tag（例如 v1.0.0，留空则用 version 自动拼接）'
@@ -33,25 +33,21 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Install wasm-pack
-        run: cargo install wasm-pack --version 0.15.0 --locked
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build:wasm
-        env:
-          REQUIRE_WASM: '1'
       - run: pnpm build:lib
 
       - name: Verify SDK artifacts
         run: |
           set -euo pipefail
           test -f dist-lib/mx-player.js
-          test -f dist-lib/wasm/mkv_demuxer.js
-          test -f dist-lib/wasm/mkv_demuxer_bg.wasm
-          # wasm-pack 生成的 .gitignore 会让 git add 跳过整个 wasm/ 目录。
-          test ! -e dist-lib/wasm/.gitignore
+          test -f dist-lib/mx-player-react.js
+          test -f dist-lib/mx-player-vue.js
+          test -f dist-lib/mx-player-worker.js
+          test -f dist-lib/mx-player.css
+          test -f dist-lib/package.json
+          test ! -d dist-lib/assets
+          test ! -d dist-lib/wasm
+          ! grep -R -E 'assets/demux\.worker|mkv_demuxer' dist-lib/*.js
           echo "产物校验通过。"
           du -sh dist-lib
 
@@ -80,14 +76,18 @@ jobs:
 
           git add -A
 
-          # 提交前确认 WASM 真的进了 git 树：文件在磁盘上存在不等于被 git 收录。
-          git diff --cached --name-only | grep -q '^wasm/mkv_demuxer.js$' \
-            || { echo "::error::wasm/mkv_demuxer.js 未进入提交"; git diff --cached --name-only; exit 1; }
-          git diff --cached --name-only | grep -q '^wasm/mkv_demuxer_bg.wasm$' \
-            || { echo "::error::wasm/mkv_demuxer_bg.wasm 未进入提交"; exit 1; }
-
           git commit -m "SDK build ${TAG} (${GITHUB_SHA::7})"
+          SDK_TAG="sdk-${TAG}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${SDK_TAG}" >/dev/null 2>&1; then
+            echo "::error::不可变 SDK tag ${SDK_TAG} 已存在，请提升版本号"
+            exit 1
+          fi
+          git tag "${SDK_TAG}"
           git push -f origin cdn-tmp:cdn
+          git push origin "${SDK_TAG}"
 
           echo "已发布到 cdn 分支。"
           echo "jsDelivr: https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@cdn/mx-player.js"
+          echo "锁定版本: https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${SDK_TAG}/mx-player.js"
+          echo "样式: https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${SDK_TAG}/mx-player.css"
+          echo "CSP Worker: https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${SDK_TAG}/mx-player-worker.js（请下载后同源部署）"

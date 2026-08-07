@@ -1,10 +1,11 @@
 import { Fragment, useState } from 'react'
 import { Check, Copy, Terminal } from 'lucide-react'
 
-// 两个 CDN 通道：jsDelivr 读 cdn 分支（可锁版本），Pages 跟随最新一次部署。
-const CDN_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn'
+// 生产示例锁定不可变 SDK tag；@cdn 与 Pages 只用于体验最新构建。
+const CDN_BASE = `https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v${__APP_VERSION__}`
+const CDN_LATEST_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn'
 const PAGES_BASE = 'https://player.freeanime.org/sdk'
-const NPM_INSTALL = 'npm install github:Maishan-Inc/MX-Player-Pro#cdn'
+const NPM_INSTALL = `npm install github:Maishan-Inc/MX-Player-Pro#sdk-v${__APP_VERSION__}`
 
 /**
  * 前两个 tab 从 CDN 直接引 ES module，后三个走 npm 安装。两组之间加分隔符，
@@ -24,17 +25,17 @@ const SNIPPETS: Snippet[] = [
     id: 'html',
     label: 'HTML (jsDelivr)',
     lang: 'html',
-    code: `<div id="mse" style="aspect-ratio:16/9"></div>
+    code: `<link rel="stylesheet" href="${CDN_BASE}/mx-player.css">
+<div id="mse" style="aspect-ratio:16/9"></div>
 
 <script type="module">
-  // @cdn 取最新；换成 @v1.1.0 可锁定版本。
+  // 生产环境锁定不可变 sdk-v 标签；体验最新版可改用：
+  // ${CDN_LATEST_BASE}/mx-player.js
   import { MXPlayer } from '${CDN_BASE}/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
     url: 'https://example.com/video.mkv',
-    // 从 CDN 引入时必须指定，否则 Worker 会在你自己的域名下找 WASM。
-    wasmBaseUrl: '${CDN_BASE}/wasm/',
     volume: 0.85,
   })
 
@@ -49,7 +50,8 @@ const SNIPPETS: Snippet[] = [
     id: 'pages',
     label: 'HTML (Pages)',
     lang: 'html',
-    code: `<div id="mse" style="aspect-ratio:16/9"></div>
+    code: `<link rel="stylesheet" href="${PAGES_BASE}/mx-player.css">
+<div id="mse" style="aspect-ratio:16/9"></div>
 
 <script type="module">
   // 跟随站点最新一次部署，不带版本号。
@@ -57,7 +59,6 @@ const SNIPPETS: Snippet[] = [
 
   const player = new MXPlayer({
     playerElm: '#mse',
-    wasmBaseUrl: '${PAGES_BASE}/wasm/',
     localPlayback: true,
   })
 
@@ -70,6 +71,7 @@ const SNIPPETS: Snippet[] = [
     label: 'JavaScript',
     lang: 'javascript',
     code: `import { MXPlayer } from 'mx-player-pro'
+import 'mx-player-pro/style.css'
 
 const player = new MXPlayer({
   playerElm: '#mse',
@@ -100,6 +102,7 @@ window.addEventListener('beforeunload', () => player.destroy())`,
     lang: 'tsx',
     code: `import { useRef } from 'react'
 import { MXPlayerReact, type MXPlayerHandle } from 'mx-player-pro/react'
+import 'mx-player-pro/style.css'
 
 export function Player() {
   const ref = useRef<MXPlayerHandle>(null)
@@ -139,6 +142,7 @@ export function Player() {
 <script setup lang="ts">
 import { ref } from 'vue'
 import { MxPlayer } from 'mx-player-pro/vue'
+import 'mx-player-pro/style.css'
 
 const player = ref<InstanceType<typeof MxPlayer> | null>(null)
 
@@ -231,7 +235,7 @@ export default function IntegrationSection({ onOpenPlayground }: { onOpenPlaygro
       </div>
 
       <p className="integration-note">
-        需要 Chrome/Edge 94+ 或 Safari 16.4+（WebCodecs）。远端 MKV 须开启 CORS 并支持 Range 请求。当前版本 v{__APP_VERSION__}；jsDelivr 路径把 <code>@cdn</code> 换成 <code>@v{__APP_VERSION__}</code> 即可锁定版本。
+        需要 Chrome/Edge 94+ 或 Safari 16.4+（WebCodecs）。远端 MKV 须开启 CORS 并支持 Range 请求。当前版本 v{__APP_VERSION__}；生产环境使用不可变 <code>@sdk-v{__APP_VERSION__}</code>，<code>@cdn</code> 仅用于体验最新版。
       </p>
     </section>
   )

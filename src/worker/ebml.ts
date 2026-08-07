@@ -1,10 +1,10 @@
 import { codecForTrack, isTextSubtitle } from '../lib/codec'
 import { parseBlock } from './ebml-block'
+import { isEbmlDocument } from './ebml-probe'
 import {
   element, firstElementAllowTruncated, floatValue, text, unsigned, walk, copyBytes, type Element,
 } from './ebml-elements'
 import type { MKVPacket, PlaybackMetadata, ProbeInfo, TrackInfo, TrackKind } from '../types'
-import type { RustDemuxerRuntime } from './wasm-runtime'
 
 /**
  * Reads are declared as ArrayBuffer-backed (never SharedArrayBuffer) so packet
@@ -103,11 +103,8 @@ export class MatroskaParser {
   private firstClusterOffset = 0
   private cursor = 0
   private atEnd = false
-  private readonly wasm: RustDemuxerRuntime
-
-  constructor(loader: MediaReader, wasm: RustDemuxerRuntime = { available: false }) {
+  constructor(loader: MediaReader) {
     this.loader = loader
-    this.wasm = wasm
   }
 
   get endOfStream(): boolean { return this.atEnd }
@@ -125,7 +122,7 @@ export class MatroskaParser {
     // Cluster is located. Most files resolve on the 1 MB read.
     for (const window of HEADER_WINDOWS) {
       bytes = await this.loader.read(0, Math.min(window, total))
-      if (this.wasm.available && this.wasm.probe && !this.wasm.probe(bytes)) throw new Error('WASM_EBML_PROBE_FAILED')
+      if (!isEbmlDocument(bytes)) throw new Error('MKV_EBML_HEADER_INVALID')
       // Segment's declared size spans nearly the whole file, so it is legitimately
       // truncated inside a header window and must be looked up tolerantly.
       segment = firstElementAllowTruncated(bytes, 0, bytes.length, ID.segment)

@@ -5,44 +5,61 @@ import { fileURLToPath } from 'node:url'
 const entry = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
 /**
- * 两种产物：
+ * 两类产物：
  * - 默认：GitHub Pages 上的演示站点（dist/）
  * - BUILD_MODE=lib：给开发者引入的 SDK（dist-lib/）
  *
- * SDK 只出 ES 格式。播放器依赖 `new Worker(..., {type:'module'})` 与动态 import()
- * 加载 WASM，二者都无法在经典脚本（UMD/IIFE）里工作，出一个跑不起来的 UMD
- * 只会让人以为 <script src> 能用。
+ * SDK 只出 ES 格式。播放器使用模块 Worker 和现代浏览器 API，不提供会误导
+ * 开发者用经典 <script src> 的 UMD/IIFE 版本。
  */
 export default defineConfig(({ mode }) => {
-  const version = process.env.APP_VERSION || '1.0.0-dev'
+  const version = process.env.APP_VERSION || '1.2.0-dev'
 
   if (process.env.BUILD_MODE === 'lib') {
+    const variant = process.env.LIB_VARIANT || 'standalone'
+    const variants: Record<string, { entry: string; fileName: string; external: string[] }> = {
+      standalone: {
+        entry: entry('./src/index.ts'),
+        fileName: 'mx-player',
+        external: [] as string[],
+      },
+      react: {
+        entry: entry('./src/react/MXPlayerReact.tsx'),
+        fileName: 'mx-player-react',
+        external: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'],
+      },
+      vue: {
+        entry: entry('./src/vue/MxPlayer.ts'),
+        fileName: 'mx-player-vue',
+        external: ['vue'],
+      },
+      worker: {
+        entry: entry('./src/worker/demux.worker.ts'),
+        fileName: 'mx-player-worker',
+        external: [],
+      },
+    }
+    const selected = variants[variant] || variants.standalone
+
     return {
       plugins: [react()],
+      publicDir: false,
       worker: { format: 'es' },
       define: { __APP_VERSION__: JSON.stringify(version) },
-      /**
-       * 相对基址。默认的 '/' 会把解封装 Worker 的地址编译成 `/assets/demux.worker-*.js`，
-       * 而 `new URL('/assets/…', import.meta.url)` 是根相对的，会解析到源站根目录：
-       * jsDelivr 上落成 cdn.jsdelivr.net/assets/…（丢掉 /gh/<repo>@cdn 前缀）而 404，
-       * 装进 node_modules 的消费者同样拿不到。改成 './' 后才跟着 SDK 自身的目录走。
-       */
       base: './',
       build: {
         target: 'es2022',
         sourcemap: true,
         outDir: 'dist-lib',
-        emptyOutDir: true,
+        emptyOutDir: variant === 'standalone',
         lib: {
-          entry: {
-            'mx-player': entry('./src/index.ts'),
-            'mx-player-vue': entry('./src/vue/MxPlayer.ts'),
-            'mx-player-react': entry('./src/react/MXPlayerReact.tsx'),
-          },
+          entry: selected.entry,
           formats: ['es'],
+          fileName: () => `${selected.fileName}.js`,
+          cssFileName: 'mx-player',
         },
         rollupOptions: {
-          external: ['react', 'react-dom', 'react/jsx-runtime', 'vue'],
+          external: selected.external,
         },
       },
     }
