@@ -6,14 +6,14 @@
 
 ## 在网页中使用
 
-播放器默认挂载完整的 React 控制界面。生产环境建议锁定不可变的 `sdk-v<version>` 标签：
+播放器默认挂载完整的 React 控制界面。`@cdn` 始终指向最新一次 SDK 发布，接入方不需要跟着改地址：
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.0/mx-player.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.css">
 <div id="mse" style="width:100%;aspect-ratio:16/9"></div>
 
 <script type="module">
-  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.0/mx-player.js'
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
@@ -26,7 +26,9 @@
 </script>
 ```
 
-把 `@sdk-v1.2.0` 改成 `@cdn` 可体验最新构建，但 `@cdn` 会随发布变化，不建议生产环境长期使用。GitHub Pages 入口为 `https://player.freeanime.org/sdk/mx-player.js` 与 `mx-player.css`。
+GitHub Pages 入口同样是最新版：`https://player.freeanime.org/sdk/mx-player.js` 与 `mx-player.css`。
+
+> 不要用 `@latest`。jsDelivr 的 `@latest` 解析到仓库最新的 Git tag，而那不一定是 SDK 产物标签。要最新版就用 `@cdn`。
 
 完整接入方式、React/Vue 组件和 API 参考见 [INTEGRATION.md](./INTEGRATION.md)。
 
@@ -87,6 +89,8 @@ pnpm build:lib
 
 ## 发布
 
-`Publish SDK` workflow 会把 `dist-lib/` 推送到可变的 `cdn` 分支，并在同一产物提交上创建不可变 `sdk-v<version>` 标签。jsDelivr 直接读取这些 Git 树；生产项目应使用不可变标签。
+`Publish SDK` workflow 把 `dist-lib/` 推送到 `cdn` 分支，jsDelivr 直接读取这棵 Git 树。发布结束后 workflow 会自动清理 jsDelivr 缓存，`@cdn` 立即生效，不需要手动去 purge。
+
+发布时可以勾选 **保留此版本**：除了更新 `@cdn`，还会额外打一个不可变的 `sdk-v<version>` 标签，作为可长期引用的锚点。这个标签之后不会被任何新发布覆盖或删除。不勾选就只更新 `@cdn`，仓库不会堆积旧版本。
 
 仓库以 MIT License 发布。

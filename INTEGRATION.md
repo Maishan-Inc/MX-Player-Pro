@@ -17,14 +17,14 @@ MX Player Pro 是纯客户端 Matroska 播放器。浏览器通过 HTTP Range �
 
 ## 一、jsDelivr
 
-生产环境应锁定不可变的 `sdk-v<version>` 标签：
+`@cdn` 始终指向最新一次 SDK 发布，接入方写死这个地址即可，升级时不需要改任何东西：
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.0/mx-player.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.css">
 <div id="mse" style="width:100%;aspect-ratio:16/9"></div>
 
 <script type="module">
-  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.0/mx-player.js'
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
@@ -42,14 +42,41 @@ MX Player Pro 是纯客户端 Matroska 播放器。浏览器通过 HTTP Range �
 </script>
 ```
 
-`@cdn` 指向最新一次 SDK 构建，适合测试：
+完整文件清单：
 
 ```text
 https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js
 https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.css
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player-react.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player-vue.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player-worker.js
 ```
 
-`@cdn` 会变化，生产项目请使用 `@sdk-v1.2.0` 这类不可变标签。
+> 不要用 `@latest`。jsDelivr 的 `@latest` 解析到仓库里最新的 Git tag，而那不一定是 SDK 产物标签，可能直接 404。要最新版就用 `@cdn`。
+
+### 缓存与更新时机
+
+jsDelivr 会缓存 `@cdn` 这类分支地址，所以新发布不会立刻可见。`Publish SDK` workflow 在推完产物后会自动调用 jsDelivr 的清理接口，正常情况下发布完成即生效，不需要手动刷新。
+
+如果碰上清理失败（workflow 日志里会有 warning），可以自己访问一次清理地址：
+
+```text
+https://purge.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js
+```
+
+浏览器端的强缓存另算：本地调试时用硬性重新加载，或临时加一个查询串绕开。
+
+### 需要长期锁定某个版本时
+
+发布时可以勾选 **保留此版本**，workflow 会在更新 `@cdn` 的同时，额外打一个不可变的 `sdk-v<version>` 标签。这个标签之后不会被任何新发布覆盖或删除，可以放心长期引用：
+
+```html
+<script type="module">
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v2.0.0/mx-player.js'
+</script>
+```
+
+没有勾选保留的发布不会产生标签，只有 `@cdn` 会前进。默认接入请直接用 `@cdn`。
 
 ### 为什么跨域 SDK 不再触发 Worker 同源错误
 
@@ -106,13 +133,13 @@ Content-Security-Policy: worker-src 'self'; script-src 'self' https://cdn.jsdeli
 
 ## 三、npm / 构建工具
 
-从不可变 SDK 标签安装：
+从 `cdn` 分支安装，始终拿到最新一次 SDK 发布：
 
 ```bash
-npm install github:Maishan-Inc/MX-Player-Pro#sdk-v1.2.0
+npm install github:Maishan-Inc/MX-Player-Pro#cdn
 ```
 
-测试最新版可把标签改为 `#cdn`。
+npm 会把解析到的 commit 写进 lockfile，所以安装结果本身是可复现的；要升级就重新安装。如果需要锁到某个保留版本，把 `#cdn` 换成 `#sdk-v<version>`。
 
 ### 原生 JavaScript / TypeScript
 
@@ -288,7 +315,9 @@ Range: bytes=0-1048575
 
 ### 解码器不可用
 
-确认浏览器支持 WebCodecs，并确认轨道编码映射受支持。当前播放器主要支持 H.264/HEVC 视频与 AAC 音频；不支持的音频轨不会阻止视频画面继续播放。
+确认浏览器支持 WebCodecs，并确认轨道编码映射受支持。视频支持 H.264/AVC 与 HEVC；音频支持 AAC、FLAC、Opus、Vorbis、MP3，以及浏览器自身支持时的 AC-3/E-AC-3。
+
+音频轨无法解码时不会影响视频画面，播放器会在状态里给出具体原因（编码不受支持，或浏览器拒绝该配置）。实际可用范围取决于浏览器：例如 AC-3/E-AC-3 只在部分平台的 Chrome/Edge 上可用。
 
 ### `MIME type "text/plain"`
 

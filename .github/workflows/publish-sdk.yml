@@ -2,6 +2,10 @@ name: Publish SDK
 
 # jsDelivr 的 /gh/ 路径直接读 git 树，所以产物必须提交到仓库里。
 # 把它放在独立的 cdn 分支，避免污染 main 的历史。
+#
+# 每次发布都会更新 cdn 分支，接入方文档里的 @cdn 地址随之指向最新构建。
+# 版本标签是可选的：只有勾选 retain_version 才会打 sdk-v<version>，
+# 打出来的标签是不可变的长期锚点，后续发布只会新增、不会覆盖或删除它。
 on:
   workflow_dispatch:
     inputs:
@@ -10,8 +14,13 @@ on:
         required: true
         default: '1.2.0'
         type: string
+      retain_version:
+        description: '保留此版本：额外打一个不可变的 sdk-v<version> 标签，后续发布不会删除它'
+        required: false
+        default: false
+        type: boolean
       tag:
-        description: 'Git tag（例如 v1.0.0，留空则用 version 自动拼接）'
+        description: 'Git tag（例如 v1.0.0，留空则用 version 自动拼接）；仅在保留版本时使用'
         required: false
         type: string
 
@@ -57,11 +66,22 @@ jobs:
       - name: Push SDK to cdn branch
         env:
           GH_TOKEN: ${{ github.token }}
+          RETAIN_VERSION: ${{ github.event.inputs.retain_version }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
 
-          TAG="${{ github.event.inputs.tag }}"
+          TAG="${INPUT_TAG}"
           if [ -z "$TAG" ]; then TAG="v${APP_VERSION}"; fi
+          SDK_TAG="sdk-${TAG}"
+
+          # 冲突检查放在推送之前：已保留的版本不可覆盖，而一旦 cdn 已经推上去再失败，
+          # 就会留下"发布成功但整个 workflow 是红叉"的状态。
+          if [ "$RETAIN_VERSION" = "true" ] \
+            && git ls-remote --exit-code --tags origin "refs/tags/${SDK_TAG}" >/dev/null 2>&1; then
+            echo "::error::已保留的版本 ${SDK_TAG} 已存在且不可覆盖，请提升版本号"
+            exit 1
+          fi
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -80,17 +100,70 @@ jobs:
           git add -A
 
           git commit -m "SDK build ${TAG} (${GITHUB_SHA::7})"
-          SDK_TAG="sdk-${TAG}"
-          if git ls-remote --exit-code --tags origin "refs/tags/${SDK_TAG}" >/dev/null 2>&1; then
-            echo "::error::不可变 SDK tag ${SDK_TAG} 已存在，请提升版本号"
-            exit 1
-          fi
-          git tag "${SDK_TAG}"
-          git push -f origin cdn-tmp:cdn
-          git push origin "${SDK_TAG}"
 
-          echo "已发布到 cdn 分支。"
-          echo "jsDelivr: https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@cdn/mx-player.js"
-          echo "锁定版本: https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${SDK_TAG}/mx-player.js"
-          echo "样式: https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${SDK_TAG}/mx-player.css"
-          echo "CSP Worker: https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${SDK_TAG}/mx-player-worker.js（请下载后同源部署）"
+          # cdn 分支永远指向最新构建，接入方无需改地址。
+          git push -f origin cdn-tmp:cdn
+
+          # 版本标签是可选的长期锚点。不勾选就只更新 cdn，仓库不会堆积旧版本。
+          if [ "$RETAIN_VERSION" != "true" ]; then
+            echo "未勾选保留版本：只更新 cdn 分支，不生成 sdk-* 标签。"
+            exit 0
+          fi
+
+          # 标签指向刚提交的产物，jsDelivr 才能从这个标签读到文件。
+          git tag "${SDK_TAG}"
+          git push origin "${SDK_TAG}"
+          echo "SDK_PINNED=https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${SDK_TAG}/mx-player.js" >> "$GITHUB_ENV"
+          echo "已保留版本 ${SDK_TAG}，后续发布不会删除它。"
+
+      # jsDelivr 对分支地址有自己的缓存，不清理的话 @cdn 要等到缓存过期才会变。
+      # 发布是手动触发的，不会撞上 jsDelivr 对同一 URL 的清理频率限制。
+      - name: Purge jsDelivr cache for @cdn
+        run: |
+          set -uo pipefail
+          # 给 GitHub 一点时间让新的 cdn 分支对 jsDelivr 的源可见。
+          sleep 15
+          failed=0
+          for file in \
+            mx-player.js mx-player.js.map \
+            mx-player-react.js mx-player-react.js.map \
+            mx-player-vue.js mx-player-vue.js.map \
+            mx-player-worker.js mx-player-worker.js.map \
+            mx-player.css package.json
+          do
+            url="https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@cdn/${file}"
+            if curl -fsS -m 60 "$url" >/dev/null; then
+              echo "已清理 ${file}"
+            else
+              echo "::warning::jsDelivr 清理失败：${file}（缓存过期后仍会自动更新）"
+              failed=1
+            fi
+          done
+          # 清理失败不该让一次成功的发布变成红叉：产物已经推上去了。
+          if [ "$failed" = "1" ]; then
+            echo "::warning::部分文件未能立即清理，可稍后手动访问 purge.jsdelivr.net 重试。"
+          fi
+
+      - name: Summarise published URLs
+        run: |
+          set -euo pipefail
+          {
+            echo "### SDK 已发布"
+            echo ""
+            echo "最新（推荐接入方使用，无需改地址）："
+            echo ""
+            echo '```text'
+            echo "https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@cdn/mx-player.js"
+            echo "https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@cdn/mx-player.css"
+            echo '```'
+            if [ -n "${SDK_PINNED:-}" ]; then
+              echo ""
+              echo "本次保留的版本（不可变，后续发布不会删除）："
+              echo ""
+              echo '```text'
+              echo "${SDK_PINNED}"
+              echo '```'
+            fi
+            echo ""
+            echo "严格 CSP 站点请下载 mx-player-worker.js 后同源部署。"
+          } >> "$GITHUB_STEP_SUMMARY"
