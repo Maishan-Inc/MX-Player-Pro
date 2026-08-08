@@ -130,6 +130,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   const audioTracksRef = useRef<TrackInfo[]>([])
   const automaticAudioRef = useRef(true)
   const failedAudioTracksRef = useRef(new Set<number>())
+  const metadataReceivedRef = useRef(false)
   const subtitleTrackRef = useRef<number | null>(null)
   const subtitleEnabledRef = useRef(false)
   /**
@@ -283,8 +284,28 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     inFlightRef.current = false
     eofRef.current = false
     readyRef.current = false
+    metadataReceivedRef.current = false
+    const failWorker = (code: string, detail?: string) => {
+      if (workerRef.current !== worker) return
+      inFlightRef.current = false
+      readyRef.current = false
+      const raw = detail ? `${code}:${detail}` : code
+      const message = explainPlaybackError(raw)
+      setError(message)
+      setProgress('解封装失败')
+      propsRef.current.onError?.({ message })
+    }
     worker.onmessage = (event: MessageEvent<DemuxEvent>) => eventHandlerRef.current(event.data)
+    worker.onerror = (event: ErrorEvent) => {
+      failWorker('WORKER_RUNTIME_FAILED', event.message || 'Worker 运行时异常')
+    }
+    worker.onmessageerror = () => {
+      failWorker('WORKER_RUNTIME_FAILED', 'Worker 消息无法反序列化')
+    }
     worker.postMessage({ type: 'init', source } satisfies DemuxRequest)
+    const initTimer = window.setTimeout(() => {
+      if (!metadataReceivedRef.current && workerRef.current === worker) failWorker('DEMUX_INIT_TIMEOUT')
+    }, 15_000)
     const timer = window.setInterval(() => {
       const active = engineRef.current
       if (!active) return
@@ -302,6 +323,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     }, 100)
     return () => {
       window.clearInterval(timer)
+      window.clearTimeout(initTimer)
       worker.postMessage({ type: 'close' } satisfies DemuxRequest)
       worker.terminate()
       engine.close()
@@ -409,6 +431,10 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       return
     }
     if (event.type === 'metadata') {
+      // Metadata is the end of the potentially fragile Worker startup/probe phase.
+      // The init timeout is cleared by the effect cleanup when the source changes;
+      // this flag prevents a late timer from reporting a false failure.
+      metadataReceivedRef.current = true
       const tracks = event.metadata.tracks
       const video = tracks.find((track) => track.kind === 'video')
       const audio = tracks.find((track) => track.kind === 'audio')

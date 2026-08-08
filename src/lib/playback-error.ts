@@ -18,6 +18,8 @@ const MESSAGES: Array<[RegExp, string | ((detail: string) => string)]> = [
   [/^MKV_TRACKS_NOT_FOUND(?:$|:)/i, '文件中没有找到任何音视频轨道信息。'],
   [/^MKV_EBML_HEADER_INVALID(?:$|:)/i, '文件头不是有效的 EBML/Matroska 结构，请确认这是 MKV 文件。'],
   [/^WORKER_CREATE_FAILED(?:$|:)/i, '解封装 Worker 创建失败。若站点的内容安全策略禁止 blob: Worker，请在播放器配置中提供同源 workerUrl。'],
+  [/^WORKER_RUNTIME_FAILED(?:$|:)/i, '解封装 Worker 启动失败。请检查页面是否允许 worker/blob 脚本；在线实操可改用最新版浏览器后重试。'],
+  [/^DEMUX_INIT_TIMEOUT(?:$|:)/i, '媒体初始化超时。请确认本地文件可正常读取，或云端地址允许 CORS 与 Range 请求。'],
 ]
 
 export function explainPlaybackError(message: string) {

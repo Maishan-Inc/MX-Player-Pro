@@ -43,4 +43,9 @@ describe('playback error explanation', () => {
     expect(explainPlaybackError('MKV_CLUSTER_UNBOUNDED')).toContain('结构异常')
     expect(explainPlaybackError('MKV_SEGMENT_NOT_FOUND')).toContain('Segment')
   })
+
+  it('explains worker startup and initialization timeouts', () => {
+    expect(explainPlaybackError('WORKER_RUNTIME_FAILED:blocked')).toContain('Worker')
+    expect(explainPlaybackError('DEMUX_INIT_TIMEOUT')).toContain('初始化超时')
+  })
 })
