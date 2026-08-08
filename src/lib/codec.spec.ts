@@ -41,16 +41,22 @@ describe('codec mapping', () => {
     expect(codecForTrack({ id: 2, kind: 'audio', codecId: 'A_DTS' })).toBeNull()
   })
 
-  // The WebCodecs FLAC registration requires the description to start with the fLaC
-  // magic; some muxers store only the metadata blocks.
+  // Matroska muxers differ on whether CodecPrivate includes the fLaC magic and
+  // metadata-block header; every form must become a valid WebCodecs description.
   it('normalises FLAC CodecPrivate to a fLaC-prefixed header', () => {
     const magic = [0x66, 0x4c, 0x61, 0x43]
-    const streamInfo = [0x80, 0, 0, 0x22]
-    const withMagic = new Uint8Array([...magic, ...streamInfo]).buffer
+    const blockHeader = [0x80, 0, 0, 0x22]
+    const streamInfo = new Array(34).fill(0x11)
+    const withMagic = new Uint8Array([...magic, ...blockHeader, ...streamInfo]).buffer
     expect(new Uint8Array(descriptionForTrack({ id: 2, kind: 'audio', codecId: 'A_FLAC', codecPrivate: withMagic }) as ArrayBuffer))
-      .toEqual(new Uint8Array([...magic, ...streamInfo]))
+      .toEqual(new Uint8Array([...magic, ...blockHeader, ...streamInfo]))
     expect(new Uint8Array(descriptionForTrack({ id: 2, kind: 'audio', codecId: 'A_FLAC', codecPrivate: new Uint8Array(streamInfo).buffer }) as ArrayBuffer))
-      .toEqual(new Uint8Array([...magic, ...streamInfo]))
+      .toEqual(new Uint8Array([...magic, ...blockHeader, ...streamInfo]))
+    expect(new Uint8Array(descriptionForTrack({ id: 2, kind: 'audio', codecId: 'A_FLAC', codecPrivate: new Uint8Array([...blockHeader, ...streamInfo]).buffer }) as ArrayBuffer))
+      .toEqual(new Uint8Array([...magic, ...blockHeader, ...streamInfo]))
+    // A muxer may include fLaC but omit only the block header.
+    expect(new Uint8Array(descriptionForTrack({ id: 2, kind: 'audio', codecId: 'A_FLAC', codecPrivate: new Uint8Array([...magic, ...streamInfo]).buffer }) as ArrayBuffer))
+      .toEqual(new Uint8Array([...magic, ...blockHeader, ...streamInfo]))
   })
 
   // MP3 takes no description, and Chrome rejects a config that carries one.

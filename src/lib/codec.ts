@@ -37,21 +37,29 @@ export function descriptionForTrack(track: TrackInfo): ArrayBuffer | undefined {
 
 /**
  * The WebCodecs FLAC registration requires the description to be a FLAC stream
- * header: the `fLaC` magic followed by metadata blocks. Muxers that store only the
- * blocks get the magic — and, for a bare 34-byte STREAMINFO, its block header — added
- * back, because without them the decoder rejects the config and the file plays silent.
+ * header: the `fLaC` magic followed by metadata blocks. Matroska muxers emit all
+ * four common forms (bare STREAMINFO, a STREAMINFO block, and either with magic),
+ * so normalize them before passing the config to AudioDecoder.
  */
 function flacDescription(codecPrivate?: ArrayBuffer): ArrayBuffer | undefined {
-  if (!codecPrivate || codecPrivate.byteLength < 4) return codecPrivate
+  if (!codecPrivate || codecPrivate.byteLength === 0) return codecPrivate
   const bytes = new Uint8Array(codecPrivate)
-  if (bytes[0] === 0x66 && bytes[1] === 0x4c && bytes[2] === 0x61 && bytes[3] === 0x43) return codecPrivate
+  if (bytes.length < 4) return codecPrivate
   const magic = [0x66, 0x4c, 0x61, 0x43]
-  // A bare STREAMINFO payload is 34 bytes and carries no block header of its own.
-  const header = bytes.length === 34 ? [0x80, 0x00, 0x00, 0x22] : []
-  const out = new Uint8Array(magic.length + header.length + bytes.length)
+  const hasMagic = bytes.length >= 4 && bytes[0] === magic[0] && bytes[1] === magic[1] && bytes[2] === magic[2] && bytes[3] === magic[3]
+  const payload = hasMagic ? bytes.subarray(4) : bytes
+
+  // STREAMINFO is exactly 34 bytes. If no metadata-block header is present,
+  // synthesize a last-block STREAMINFO header (type 0x00, length 34).
+  const hasBlockHeader = payload.length >= 4 && (payload[0] & 0x7f) === 0 &&
+    ((payload[1] << 16) | (payload[2] << 8) | payload[3]) === 34
+  const header = hasBlockHeader || payload.length !== 34 ? [] : [0x80, 0x00, 0x00, 0x22]
+  if (hasMagic && (hasBlockHeader || payload.length !== 34)) return codecPrivate
+
+  const out = new Uint8Array(magic.length + header.length + payload.length)
   out.set(magic, 0)
   out.set(header, magic.length)
-  out.set(bytes, magic.length + header.length)
+  out.set(payload, magic.length + header.length)
   return out.buffer
 }
 

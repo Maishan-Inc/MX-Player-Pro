@@ -36,7 +36,7 @@ GitHub Pages 入口同样是最新版：`https://player.freeanime.org/sdk/mx-pla
 
 ## Worker、WebCodecs 与 WASM
 
-WebCodecs 负责解码 H.264、HEVC、AAC 等压缩轨道，但不负责读取 MKV 容器。播放器先在 Worker 中解析 EBML、Tracks、Clusters 和 Blocks，再把轨道数据交给 WebCodecs。
+WebCodecs 负责解码 H.264、HEVC、AAC、FLAC、Opus、Vorbis、MP3 以及浏览器支持的 AC-3/E-AC-3 压缩轨道，但不负责读取 MKV 容器。播放器先在 Worker 中解析 EBML、Tracks、Clusters 和 Blocks，再把轨道数据交给 WebCodecs。
 
 默认 SDK 已把 Worker 内联到 `mx-player.js`，运行时从当前页面创建 Blob Worker。因此网页可以从 jsDelivr 跨域导入 SDK，不会再执行跨域的 `new Worker('https://cdn.jsdelivr.net/...')`。当前播放链路不依赖 Rust 或 WASM，也不需要配置 `wasmBaseUrl`。
 

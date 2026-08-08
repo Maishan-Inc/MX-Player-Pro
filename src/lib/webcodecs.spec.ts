@@ -91,4 +91,17 @@ describe('WebCodecsEngine.configure', () => {
     const config = StubDecoder.configs.find((item) => item.codec === 'mp3')
     expect(config?.description).toBeUndefined()
   })
+
+  it('reconfigures the audio decoder when switching tracks', async () => {
+    stubGlobals()
+    const statuses: EngineStatus[] = []
+    const engine = new WebCodecsEngine(canvas(), (status) => statuses.push(status))
+    const flac = { id: 2, kind: 'audio' as const, codecId: 'A_FLAC', codec: 'flac', channels: 2 }
+    const ac3 = { id: 3, kind: 'audio' as const, codecId: 'A_AC3', codec: 'ac-3', channels: 2 }
+    await engine.configure(videoTrack, flac)
+    await engine.configureAudio(ac3)
+    expect(StubDecoder.configs.map((config) => config.codec)).toEqual(['avc1.640028', 'flac', 'ac-3'])
+    expect(statuses[statuses.length - 1]).toEqual({ videoReady: true, audioReady: true, error: undefined })
+    engine.close()
+  })
 })

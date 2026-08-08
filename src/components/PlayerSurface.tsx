@@ -105,6 +105,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   const [currentTime, setCurrentTime] = useState(0)
   const [videoTrackId, setVideoTrackId] = useState<number>()
   const [audioTrackId, setAudioTrackId] = useState<number>()
+  const [audioAuto, setAudioAuto] = useState(true)
   const [subtitleTrackId, setSubtitleTrackId] = useState<number | null>(null)
   const [subtitleEnabled, setSubtitleEnabled] = useState(false)
   const [cueLines, setCueLines] = useState<string[]>([])
@@ -126,6 +127,9 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   const playingRef = useRef(false)
   const videoTrackRef = useRef<number | undefined>(undefined)
   const audioTrackRef = useRef<number | undefined>(undefined)
+  const audioTracksRef = useRef<TrackInfo[]>([])
+  const automaticAudioRef = useRef(true)
+  const failedAudioTracksRef = useRef(new Set<number>())
   const subtitleTrackRef = useRef<number | null>(null)
   const subtitleEnabledRef = useRef(false)
   /**
@@ -251,6 +255,26 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
         const message = explainPlaybackError(status.error)
         setError(message)
         propsRef.current.onError?.({ message })
+      }
+      // In automatic mode, a browser-specific audio failure should not leave a
+      // perfectly decodable video frozen behind an unusable first track. Try the
+      // next mapped audio track (for example AC-3 after a FLAC config/packet error).
+      if (status.error && /^DECODER_(?:ERROR|UNSUPPORTED)_AUDIO/i.test(status.error) && automaticAudioRef.current) {
+        const failedId = audioTrackRef.current
+        if (failedId !== undefined && !failedAudioTracksRef.current.has(failedId)) {
+          failedAudioTracksRef.current.add(failedId)
+          const failedIndex = audioTracksRef.current.findIndex((track) => track.id === failedId)
+          const ordered = failedIndex >= 0
+            ? [...audioTracksRef.current.slice(failedIndex + 1), ...audioTracksRef.current.slice(0, failedIndex)]
+            : audioTracksRef.current
+          const fallback = ordered.find((track) => Boolean(track.codec) && !failedAudioTracksRef.current.has(track.id))
+          if (fallback) {
+            window.setTimeout(() => {
+              if (engineRef.current !== engine || !automaticAudioRef.current || audioTrackRef.current !== failedId) return
+              selectTrack('audio', fallback.id, { automatic: true })
+            }, 0)
+          }
+        }
       }
     })
     workerRef.current = worker
@@ -392,8 +416,12 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       setProbe(event.probe)
       setVideoTrackId(video?.id)
       setAudioTrackId(audio?.id)
+      setAudioAuto(true)
       videoTrackRef.current = video?.id
       audioTrackRef.current = audio?.id
+      audioTracksRef.current = tracks.filter((track) => track.kind === 'audio')
+      automaticAudioRef.current = true
+      failedAudioTracksRef.current = new Set()
       setSubtitleTrackId(null)
       subtitleTrackRef.current = null
       setSubtitleEnabled(false)
@@ -513,7 +541,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     showControls()
   }
 
-  function selectTrack(kind: 'audio' | 'subtitle', id: number | null) {
+  function selectTrack(kind: 'audio' | 'subtitle', id: number | null, options?: { automatic?: boolean }) {
     if (kind === 'subtitle') {
       // Every subtitle track is demuxed continuously, so this is display-only: no
       // epoch bump, no worker round trip, no rewind of the demux cursor.
@@ -525,17 +553,38 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       syncCues(engineRef.current?.currentTime ?? currentTime)
       return
     }
-    setAudioTrackId(id === null ? undefined : id)
-    audioTrackRef.current = id === null ? undefined : id
-    if (id === null) return
+    const automatic = options?.automatic ?? id === null
+    automaticAudioRef.current = automatic
+    setAudioAuto(automatic)
+    const nextId = id ?? audioTracksRef.current.find((track) => Boolean(track.codec))?.id
+    if (nextId === undefined) {
+      setAudioTrackId(undefined)
+      audioTrackRef.current = undefined
+      return
+    }
+    setAudioTrackId(nextId)
+    audioTrackRef.current = nextId
+    if (failedAudioTracksRef.current.has(nextId)) failedAudioTracksRef.current.delete(nextId)
     // A newly selected audio track only yields packets from clusters demuxed after
     // the switch, so re-demux from the current position and reset the engine.
     const time = engineRef.current?.currentTime ?? 0
     epochRef.current += 1
     eofRef.current = false
-    engineRef.current?.seekTo(time)
-    workerRef.current?.postMessage({ type: 'select-track', kind, trackId: id, time, epoch: epochRef.current } satisfies DemuxRequest)
+    const epoch = epochRef.current
+    const engine = engineRef.current
+    const track = audioTracksRef.current.find((candidate) => candidate.id === nextId)
+    if (!engine || !track) {
+      inFlightRef.current = false
+      return
+    }
     inFlightRef.current = true
+    void engine.configureAudio(track).then(() => {
+      if (epoch !== epochRef.current || audioTrackRef.current !== nextId || engineRef.current !== engine) return
+      engine.seekTo(time)
+      workerRef.current?.postMessage({ type: 'select-track', kind, trackId: nextId, time, epoch } satisfies DemuxRequest)
+    }).catch(() => {
+      inFlightRef.current = false
+    })
   }
 
   function toggleFullscreen() {
@@ -943,7 +992,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
               </div>
               <ProgressPreview currentTime={currentTime} duration={duration} bufferedEnd={stats.bufferedEnd} source={source} onSeek={seek} />
             </div>
-            {showSettings && <SettingsPanel rate={rate} setRate={(next) => { setRate(next); engineRef.current?.setPlaybackRate(next) }} audioTracks={audioTracks} subtitleTracks={subtitleTracks} audioTrackId={audioTrackId} subtitleTrackId={subtitleTrackId} selectTrack={selectTrack} qualities={qualities} selectedQuality={selectedQuality} onQualityChange={onQualityChange} />}
+            {showSettings && <SettingsPanel rate={rate} setRate={(next) => { setRate(next); engineRef.current?.setPlaybackRate(next) }} audioTracks={audioTracks} subtitleTracks={subtitleTracks} audioTrackId={audioTrackId} audioAuto={audioAuto} subtitleTrackId={subtitleTrackId} selectTrack={selectTrack} qualities={qualities} selectedQuality={selectedQuality} onQualityChange={onQualityChange} />}
             {contextMenu.open && <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} onStats={openStats} onAbout={openAbout} />}
           </div>
           {!embedded && <div className="player-status-line">
@@ -1044,8 +1093,8 @@ function AboutPanel({ onClose }: { onClose: () => void }) {
   return <section className="player-modal player-about" data-player-control><button className="modal-close" title="关闭" aria-label="关闭" onClick={onClose}><X size={17} /></button><strong>MX Player</strong><span>v{PLAYER_VERSION}</span><p>纯客户端 Matroska 播放器。文件和链接只在本机读取，视频帧由 WebCodecs 输出。</p></section>
 }
 
-function SettingsPanel({ rate, setRate, audioTracks, subtitleTracks, audioTrackId, subtitleTrackId, selectTrack, qualities, selectedQuality, onQualityChange }: { rate: number; setRate: (value: number) => void; audioTracks: TrackInfo[]; subtitleTracks: TrackInfo[]; audioTrackId?: number; subtitleTrackId: number | null; selectTrack: (kind: 'audio' | 'subtitle', id: number | null) => void; qualities: MXPlayerQuality[]; selectedQuality: string; onQualityChange?: (qualityId: string) => void }) {
-  return <div className="settings-panel" data-player-control><label><span>播放速度</span><select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map((value) => <option value={value} key={value}>{value}×</option>)}</select></label>{qualities.length > 0 && <label><span>清晰度</span><select value={selectedQuality} onChange={(event) => onQualityChange?.(event.target.value)}><option value="auto">自动</option>{qualities.map((quality) => <option value={quality.id} key={quality.id}>{quality.label}</option>)}</select></label>}<label><span>音频轨</span><select value={audioTrackId ?? ''} onChange={(event) => selectTrack('audio', event.target.value ? Number(event.target.value) : null)}><option value="">自动</option>{audioTracks.map((track) => <option value={track.id} key={track.id}>{trackLabel(track)}</option>)}</select></label>{subtitleTracks.length > 0 && <label><span>字幕轨</span><select value={subtitleTrackId ?? ''} onChange={(event) => selectTrack('subtitle', event.target.value ? Number(event.target.value) : null)}><option value="">关闭</option>{subtitleTracks.map((track) => <option value={track.id} key={track.id}>{subtitleLabel(track)}</option>)}</select></label>}</div>
+function SettingsPanel({ rate, setRate, audioTracks, subtitleTracks, audioTrackId, audioAuto, subtitleTrackId, selectTrack, qualities, selectedQuality, onQualityChange }: { rate: number; setRate: (value: number) => void; audioTracks: TrackInfo[]; subtitleTracks: TrackInfo[]; audioTrackId?: number; audioAuto: boolean; subtitleTrackId: number | null; selectTrack: (kind: 'audio' | 'subtitle', id: number | null) => void; qualities: MXPlayerQuality[]; selectedQuality: string; onQualityChange?: (qualityId: string) => void }) {
+  return <div className="settings-panel" data-player-control><label><span>播放速度</span><select value={rate} onChange={(event) => setRate(Number(event.target.value))}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map((value) => <option value={value} key={value}>{value}×</option>)}</select></label>{qualities.length > 0 && <label><span>清晰度</span><select value={selectedQuality} onChange={(event) => onQualityChange?.(event.target.value)}><option value="auto">自动</option>{qualities.map((quality) => <option value={quality.id} key={quality.id}>{quality.label}</option>)}</select></label>}<label><span>音频轨</span><select value={audioAuto ? '' : (audioTrackId ?? '')} onChange={(event) => selectTrack('audio', event.target.value ? Number(event.target.value) : null)}><option value="">自动</option>{audioTracks.map((track) => <option value={track.id} key={track.id}>{trackLabel(track)}</option>)}</select></label>{subtitleTracks.length > 0 && <label><span>字幕轨</span><select value={subtitleTrackId ?? ''} onChange={(event) => selectTrack('subtitle', event.target.value ? Number(event.target.value) : null)}><option value="">关闭</option>{subtitleTracks.map((track) => <option value={track.id} key={track.id}>{subtitleLabel(track)}</option>)}</select></label>}</div>
 }
 
 function isPlayerControl(target: EventTarget | null) {

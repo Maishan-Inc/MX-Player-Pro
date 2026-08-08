@@ -235,6 +235,49 @@ export class WebCodecsEngine {
     this.onStatus({ videoReady, audioReady, error: videoError ?? audioError })
   }
 
+  /** Reconfigure only the selected audio track while keeping video playback alive. */
+  async configureAudio(audio: TrackInfo | undefined): Promise<void> {
+    const globals = globalThis as unknown as {
+      AudioDecoder?: AudioDecoderConstructor
+      EncodedAudioChunk?: AudioChunk
+    }
+    this.disposeAudioPipeline()
+    this.audioWaitSince = performance.now()
+
+    let audioReady = false
+    let audioError: string | undefined
+    if (audio?.codec && globals.AudioDecoder && globals.EncodedAudioChunk) {
+      const config = {
+        codec: audio.codec,
+        sampleRate: audio.sampleRate || 48_000,
+        numberOfChannels: audio.channels || 2,
+        description: descriptionForTrack(audio),
+      }
+      try {
+        const supported = await globals.AudioDecoder.isConfigSupported?.(config)
+        if (supported?.supported === false) {
+          audioError = `DECODER_UNSUPPORTED_AUDIO:${audio.codec}`
+        } else {
+          const Decoder = globals.AudioDecoder
+          this.audioConfig = config
+          this.audioDecoder = new Decoder({
+            output: (data) => this.onAudioData(data),
+            error: (error) => this.failAudio(error),
+          })
+          this.audioDecoder.configure(config)
+          audioReady = true
+        }
+      } catch (error) {
+        audioError = `DECODER_ERROR_AUDIO:${describe(error)}`
+      }
+    } else if (audio) {
+      audioError = `DECODER_UNSUPPORTED_AUDIO:${codecDisplayName(audio)}`
+    }
+
+    this.packets.setActive('audio', audioReady)
+    this.onStatus({ videoReady: this.videoDecoder !== null, audioReady, error: audioError })
+  }
+
   /**
    * Buffer a demuxed packet. Nothing is decoded here: the decoders are fed from the
    * buffer just-in-time by pumpDecoders(), which is what lets the demuxer read tens
@@ -532,12 +575,23 @@ export class WebCodecsEngine {
   }
 
   private failAudio(error: unknown) {
+    this.disposeAudioPipeline()
+    this.onStatus({ videoReady: this.videoDecoder !== null, audioReady: false, error: `DECODER_ERROR_AUDIO:${describe(error)}` })
+  }
+
+  /** Drop audio state and hand timing back to the wall clock at the same position. */
+  private disposeAudioPipeline() {
     try { this.audioDecoder?.close() } catch { /* already closed */ }
     this.audioDecoder = null
+    this.audioConfig = null
     this.packets.setActive('audio', false)
     this.stopScheduledAudio()
+    this.pendingAudio.forEach((data) => data.close())
+    this.pendingAudio = []
     this.rebuildClockWithoutAudio()
-    this.onStatus({ videoReady: this.videoDecoder !== null, audioReady: false, error: `DECODER_ERROR_AUDIO:${describe(error)}` })
+    void this.audioContext?.close().catch(() => undefined)
+    this.audioContext = null
+    this.gainNode = null
   }
 
   /** Hand timing back to the wall clock, anchored where audio left off. */

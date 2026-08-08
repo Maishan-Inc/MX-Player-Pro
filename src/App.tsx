@@ -221,7 +221,7 @@ function FAQ() {
     },
     {
       q: '已经使用 WebCodecs，为什么还需要 Worker？需要 WASM 吗？',
-      a: 'WebCodecs 负责解码 H.264、HEVC、AAC 等压缩轨道，但它不认识 MKV 容器。播放器仍要先解析 EBML、Tracks、Cluster 和 Block，再把裸流交给 WebCodecs。这个解封装过程由 TypeScript 在 Worker 中完成；当前实现不依赖 WASM，旧的 wasmBaseUrl 仅为 1.x 类型兼容保留且不会生效。',
+      a: 'WebCodecs 负责解码 H.264、HEVC、AAC、FLAC、Opus、Vorbis、MP3 和浏览器支持的 AC-3/E-AC-3 轨道，但它不认识 MKV 容器。播放器仍要先解析 EBML、Tracks、Cluster 和 Block，再把裸流交给 WebCodecs。这个解封装过程由 TypeScript 在 Worker 中完成；当前实现不依赖 WASM，旧的 wasmBaseUrl 仅为 1.x 类型兼容保留且不会生效。',
     },
     {
       q: '远端 MKV 有什么要求？',
@@ -229,7 +229,7 @@ function FAQ() {
     },
     {
       q: '支持哪些编码？',
-      a: '当前版本支持 H.264/AVC、H.265/HEVC 视频和 AAC 音频。其他编码（VP9、AV1、Opus、Vorbis 等）取决于浏览器的 WebCodecs 实现，但播放器尚未添加映射。不支持的音频轨会被跳过，视频仍可播放。',
+      a: '当前版本支持 H.264/AVC、H.265/HEVC 视频，以及 AAC、FLAC、Opus、Vorbis、MP3 和浏览器支持的 AC-3/E-AC-3 音频。浏览器不支持当前音轨时，自动模式会尝试下一条可用音轨，视频仍可播放。VP9、AV1 等视频编码暂未映射。',
     },
     {
       q: '本地文件会被上传吗？',
