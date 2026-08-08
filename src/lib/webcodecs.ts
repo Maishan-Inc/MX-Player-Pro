@@ -33,7 +33,8 @@ interface AudioDataLike {
   numberOfChannels: number
   sampleRate: number
   timestamp: number
-  copyTo(destination: Float32Array, options: { planeIndex: number }): void
+  format?: string
+  copyTo(destination: Float32Array, options: { planeIndex: number; format?: string }): void
   close(): void
 }
 interface VideoFrameLike extends Closeable {
@@ -115,6 +116,7 @@ export class WebCodecsEngine {
   private previewPending = false
   private seekTarget = 0
   private audioWaitSince = 0
+  private audioPrimed = false
   private raf: number | null = null
 
   constructor(canvas: HTMLCanvasElement, onStatus: (status: EngineStatus) => void) {
@@ -164,6 +166,7 @@ export class WebCodecsEngine {
     this.flushed = false
     this.stalled = false
     this.seekTarget = 0
+    this.audioPrimed = false
     // Set before the first await. The worker posts metadata and the opening packets
     // back to back, so packets land while isConfigSupported is still pending; an
     // inactive buffer would drop them and playback would start at the next keyframe.
@@ -221,8 +224,8 @@ export class WebCodecsEngine {
         audioError = `DECODER_ERROR_AUDIO:${describe(error)}`
       }
     } else if (audio) {
-      // A track with no WebCodecs mapping used to fall through silently, so the file
-      // played with no sound and nothing said why.
+      // A track with no WebCodecs mapping is reported explicitly rather than silently
+      // playing without sound.
       audioError = `DECODER_UNSUPPORTED_AUDIO:${codecDisplayName(audio)}`
     }
 
@@ -243,6 +246,7 @@ export class WebCodecsEngine {
     }
     this.disposeAudioPipeline()
     this.audioWaitSince = performance.now()
+    this.audioPrimed = false
 
     let audioReady = false
     let audioError: string | undefined
@@ -355,6 +359,7 @@ export class WebCodecsEngine {
 
   seekTo(mediaTime: number) {
     this.seekTarget = mediaTime
+    this.audioPrimed = false
     this.clock.reset(mediaTime)
     this.packets.clear()
     this.frames.flush()
@@ -474,12 +479,15 @@ export class WebCodecsEngine {
    */
   private checkAudioLiveness() {
     if (!this.playing || !this.packets.isActive('audio')) return
-    if (this.packets.endOf('audio') !== Number.NEGATIVE_INFINITY) return
     if (this.packets.endOf('video') === Number.NEGATIVE_INFINITY) return
+    // A malformed/unsupported stream can enqueue audio packets successfully while
+    // the decoder never emits PCM. Packet presence alone must not hold the master
+    // clock at zero forever.
+    if (this.audioPrimed) return
     if (performance.now() - this.audioWaitSince < AUDIO_PRIME_TIMEOUT_MS) return
     this.packets.setActive('audio', false)
     this.rebuildClockWithoutAudio()
-    this.onStatus({ videoReady: this.videoDecoder !== null, audioReady: false, error: 'DECODER_ERROR_AUDIO:音频轨没有数据' })
+    this.onStatus({ videoReady: this.videoDecoder !== null, audioReady: false, error: 'DECODER_ERROR_AUDIO:音频轨没有解码输出' })
   }
 
   /**
@@ -588,6 +596,7 @@ export class WebCodecsEngine {
     this.stopScheduledAudio()
     this.pendingAudio.forEach((data) => data.close())
     this.pendingAudio = []
+    this.audioPrimed = false
     this.rebuildClockWithoutAudio()
     void this.audioContext?.close().catch(() => undefined)
     this.audioContext = null
@@ -668,7 +677,17 @@ export class WebCodecsEngine {
       if (this.audioScheduleEnd - context.currentTime >= AUDIO_HORIZON) return
       const data = this.pendingAudio.shift()
       if (!data) return
-      this.scheduleAudio(context, data)
+      try {
+        this.scheduleAudio(context, data)
+        data.close()
+        // Receiving AudioData is not enough: copyTo() or Web Audio can still reject
+        // its sample format. Only a scheduled buffer can anchor the media clock.
+        this.audioPrimed = true
+      } catch (error) {
+        data.close()
+        this.failAudio(error)
+        return
+      }
     }
   }
 
@@ -696,7 +715,9 @@ export class WebCodecsEngine {
     const buffer = context.createBuffer(data.numberOfChannels, data.numberOfFrames, data.sampleRate)
     for (let channel = 0; channel < data.numberOfChannels; channel += 1) {
       const samples = new Float32Array(data.numberOfFrames)
-      data.copyTo(samples, { planeIndex: channel })
+      // Normalize interleaved and integer decoder output to the planar float format
+      // consumed by AudioBuffer. FLAC implementations commonly emit s16-planar.
+      data.copyTo(samples, { planeIndex: channel, format: 'f32-planar' })
       buffer.copyToChannel(samples, channel)
     }
     const mediaStart = (data.timestamp || 0) / 1_000_000
@@ -713,7 +734,6 @@ export class WebCodecsEngine {
     this.scheduledSources.add(source)
     this.audioScheduleEnd = startAt + contextDuration
     this.audioClock?.addSpan({ startAt, endAt: startAt + contextDuration, mediaStart, rate: this.playbackRate })
-    data.close()
   }
 
   private stopScheduledAudio() {

@@ -36,6 +36,21 @@ function canvas(): HTMLCanvasElement {
   return { width: 0, height: 0, getContext: () => ({ drawImage() {} }) } as unknown as HTMLCanvasElement
 }
 
+class StubAudioContext {
+  currentTime = 0
+  destination = {}
+  createGain() { return { gain: { value: 1 }, connect() {} } }
+  createBuffer(_channels: number, frames: number, sampleRate: number) {
+    return { duration: frames / sampleRate, copyToChannel() {} }
+  }
+  createBufferSource() {
+    return { playbackRate: { value: 1 }, connect() {}, start() {}, stop() {}, onended: null as (() => void) | null }
+  }
+  resume() { return Promise.resolve() }
+  suspend() { return Promise.resolve() }
+  close() { return Promise.resolve() }
+}
+
 async function configure(video: TrackInfo | undefined, audio: TrackInfo | undefined) {
   const statuses: EngineStatus[] = []
   const engine = new WebCodecsEngine(canvas(), (status) => statuses.push(status))
@@ -102,6 +117,39 @@ describe('WebCodecsEngine.configure', () => {
     await engine.configureAudio(ac3)
     expect(StubDecoder.configs.map((config) => config.codec)).toEqual(['avc1.640028', 'flac', 'ac-3'])
     expect(statuses[statuses.length - 1]).toEqual({ videoReady: true, audioReady: true, error: undefined })
+    engine.close()
+  })
+
+  it('drops a PCM block and releases the audio clock when sample conversion fails', async () => {
+    stubGlobals()
+    vi.stubGlobal('AudioContext', StubAudioContext)
+    const statuses: EngineStatus[] = []
+    const engine = new WebCodecsEngine(canvas(), (status) => statuses.push(status))
+    await engine.configure(videoTrack, { id: 2, kind: 'audio', codecId: 'A_FLAC', codec: 'flac', channels: 2 })
+    const internal = engine as unknown as {
+      playing: boolean
+      audioWaitSince: number
+      ensureAudioContext: () => AudioContext | null
+      onAudioData: (data: unknown) => void
+    }
+    internal.playing = true
+    internal.audioWaitSince = performance.now()
+    internal.ensureAudioContext()
+    const data = {
+      numberOfFrames: 1024,
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+      timestamp: 0,
+      copyTo: () => { throw new Error('sample format conversion failed') },
+      close: vi.fn(),
+    }
+    internal.onAudioData(data)
+    expect(data.close).toHaveBeenCalled()
+    expect(statuses[statuses.length - 1]).toEqual({
+      videoReady: true,
+      audioReady: false,
+      error: 'DECODER_ERROR_AUDIO:sample format conversion failed',
+    })
     engine.close()
   })
 })
