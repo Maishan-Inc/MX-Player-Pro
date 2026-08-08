@@ -48,6 +48,9 @@ jobs:
           test ! -d dist-lib/assets
           test ! -d dist-lib/wasm
           ! grep -R -E 'assets/demux\.worker|mkv_demuxer' dist-lib/*.js
+          # 浏览器里没有 process。库模式默认保留 process.env.NODE_ENV，
+          # 一旦漏进产物，CDN 直接 import 时会抛 ReferenceError 且播放器无法挂载。
+          ! grep -R 'process\.env' dist-lib/*.js
           echo "产物校验通过。"
           du -sh dist-lib
 

@@ -45,7 +45,16 @@ export default defineConfig(({ mode }) => {
       plugins: [react()],
       publicDir: false,
       worker: { format: 'es' },
-      define: { __APP_VERSION__: JSON.stringify(version) },
+      /**
+       * 库模式下 Vite 会保留 process.env.NODE_ENV，交给使用方的打包器替换。
+       * 但 SDK 的主要用法是浏览器直接 import CDN 上的 ES 模块，没有打包器兜底，
+       * React 求值到裸 process 就会抛 ReferenceError，整个播放器无法挂载。
+       * 这里烘死成 production：CDN 产物本来就只发布生产构建。
+       */
+      define: {
+        __APP_VERSION__: JSON.stringify(version),
+        'process.env.NODE_ENV': JSON.stringify('production'),
+      },
       base: './',
       build: {
         target: 'es2022',
