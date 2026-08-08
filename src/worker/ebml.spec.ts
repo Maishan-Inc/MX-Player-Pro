@@ -192,6 +192,26 @@ describe('MatroskaParser cluster walk', () => {
     expect(packets.map((packet) => packet.key)).toEqual([true, false])
   })
 
+  // WebCodecs has no DTS field, so decode() must be called in the order the blocks
+  // are stored. Sorting a batch by timestamp handed B-frames to the decoder before
+  // the frame they reference, which decoded as a smeared picture.
+  it('preserves storage order when presentation timestamps are not monotonic', async () => {
+    const file = buildFile({
+      // Decode order I P B B: the P frame is presented last but must be decoded first.
+      clusters: [cluster(0, [
+        simpleBlock(1, 0, 0x80, payload(10, 1)),
+        simpleBlock(1, 120, 0x00, payload(20, 2)),
+        simpleBlock(1, 40, 0x00, payload(30, 3)),
+        simpleBlock(1, 80, 0x00, payload(40, 4)),
+      ])],
+    })
+    const parser = new MatroskaParser(new FakeReader(file))
+    await parser.init()
+    const packets = await parser.next()
+    expect(packets.map((packet) => packet.timestamp)).toEqual([0, 120_000, 40_000, 80_000])
+    expect(packets.map((packet) => packet.data.length)).toEqual([10, 20, 30, 40])
+  })
+
   // Regression for the byte-scan class of bug: cluster discovery is structural now,
   // so a cluster ID appearing inside a block payload must not start a cluster.
   it('ignores a cluster ID embedded in block payload data', async () => {

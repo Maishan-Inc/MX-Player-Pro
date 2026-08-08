@@ -432,8 +432,12 @@ export class MatroskaParser {
     // treats eof as final: its fill loop stopped and playback froze with nothing
     // buffered instead of recovering on the next request.
     if (this.cursor >= this.segmentEnd) this.atEnd = true
-    if (!batch.length) return []
-    return batch.sort((left, right) => left.timestamp - right.timestamp)
+    // Returned in storage order, which for Matroska is decode order. EncodedVideoChunk
+    // carries only a presentation timestamp, so decode() calls are the only thing that
+    // tells the decoder the order frames were coded in. Sorting the batch by timestamp
+    // handed every B-frame to the decoder before the frame it references, which decoded
+    // as a smeared picture on any stream with B-frames.
+    return batch
   }
 
   select(kind: TrackKind, trackId: number): void {

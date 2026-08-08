@@ -1,4 +1,5 @@
 import type { MKVPacket, TrackInfo } from '../types'
+import { codecDisplayName, descriptionForTrack } from './codec'
 import { FrameQueue, type Closeable } from './frame-queue'
 import { AudioAnchoredClock, MasterClock, MonotonicClock } from './media-clock'
 import { AUDIO_HORIZON, STALL_ENTER, STALL_EXIT, canFeedAudio, canFeedVideo, shouldRequestMore } from './backpressure'
@@ -171,13 +172,18 @@ export class WebCodecsEngine {
 
     let videoReady = false
     let audioReady = false
+    // Collected rather than reported as they happen: configure() ends with one status
+    // call, and an earlier call carrying an error was overwritten by it, so the reason
+    // audio was missing never reached the UI.
+    let videoError: string | undefined
+    let audioError: string | undefined
 
     if (video?.codec && video.width && video.height) {
-      const config = { codec: video.codec, codedWidth: video.width, codedHeight: video.height, description: video.codecPrivate }
+      const config = { codec: video.codec, codedWidth: video.width, codedHeight: video.height, description: descriptionForTrack(video) }
       try {
         const supported = await globals.VideoDecoder.isConfigSupported?.(config)
         if (supported?.supported === false) {
-          this.onStatus({ videoReady: false, audioReady, error: `DECODER_UNSUPPORTED_VIDEO:${video.codec}` })
+          videoError = `DECODER_UNSUPPORTED_VIDEO:${video.codec}`
         } else {
           const Decoder = globals.VideoDecoder
           this.videoConfig = config
@@ -191,16 +197,16 @@ export class WebCodecsEngine {
           this.canvas.height = video.height
         }
       } catch (error) {
-        this.onStatus({ videoReady: false, audioReady, error: `DECODER_ERROR_VIDEO:${describe(error)}` })
+        videoError = `DECODER_ERROR_VIDEO:${describe(error)}`
       }
     }
 
     if (audio?.codec && globals.AudioDecoder && globals.EncodedAudioChunk) {
-      const config = { codec: audio.codec, sampleRate: audio.sampleRate || 48_000, numberOfChannels: audio.channels || 2, description: audio.codecPrivate }
+      const config = { codec: audio.codec, sampleRate: audio.sampleRate || 48_000, numberOfChannels: audio.channels || 2, description: descriptionForTrack(audio) }
       try {
         const supported = await globals.AudioDecoder.isConfigSupported?.(config)
         if (supported?.supported === false) {
-          this.onStatus({ videoReady, audioReady: false, error: `DECODER_UNSUPPORTED_AUDIO:${audio.codec}` })
+          audioError = `DECODER_UNSUPPORTED_AUDIO:${audio.codec}`
         } else {
           const Decoder = globals.AudioDecoder
           this.audioConfig = config
@@ -212,15 +218,21 @@ export class WebCodecsEngine {
           audioReady = true
         }
       } catch (error) {
-        this.onStatus({ videoReady, audioReady: false, error: `DECODER_ERROR_AUDIO:${describe(error)}` })
+        audioError = `DECODER_ERROR_AUDIO:${describe(error)}`
       }
+    } else if (audio) {
+      // A track with no WebCodecs mapping used to fall through silently, so the file
+      // played with no sound and nothing said why.
+      audioError = `DECODER_UNSUPPORTED_AUDIO:${codecDisplayName(audio)}`
     }
 
     // Correct the provisional flags: only decoders that actually came up may
     // constrain the buffered horizon.
     this.packets.setActive('video', videoReady)
     this.packets.setActive('audio', audioReady)
-    this.onStatus({ videoReady, audioReady })
+    // A dead video pipeline is fatal and an unusable audio track is not, so video wins
+    // when both failed.
+    this.onStatus({ videoReady, audioReady, error: videoError ?? audioError })
   }
 
   /**
