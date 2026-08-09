@@ -52,7 +52,7 @@ vi.mock('../lib/range-loader', () => ({
 }))
 
 let posted: DemuxEvent[] = []
-let deliver: (request: DemuxRequest) => void
+let deliver: (request: DemuxRequest, ports?: MessagePort[]) => void
 
 /** Run the microtask queue out so the worker's request chain reaches idle. */
 async function settle() {
@@ -73,7 +73,7 @@ beforeEach(async () => {
   ;(globalThis as unknown as { self: unknown }).self = fakeSelf
   vi.resetModules()
   await import('./demux.worker')
-  deliver = (request) => fakeSelf.onmessage?.({ data: request } as MessageEvent<DemuxRequest>)
+  deliver = (request, ports = []) => fakeSelf.onmessage?.({ data: request, ports } as unknown as MessageEvent<DemuxRequest>)
 })
 
 afterEach(() => {

@@ -42,6 +42,26 @@ class FakeReader implements MediaReader {
   get totalSize() { return this.bytes.length }
 }
 
+class HiddenSizeReader implements MediaReader {
+  readonly calls: Array<{ offset: number; length: number }> = []
+  constructor(private readonly bytes: Uint8Array<ArrayBuffer>) {}
+
+  async probe() {
+    return { size: null, contentType: 'video/x-matroska', acceptsRanges: true, status: 206, cors: 'ok' as const }
+  }
+
+  async read(offset: number, length: number): Promise<Uint8Array<ArrayBuffer>> {
+    this.calls.push({ offset, length })
+    return this.bytes.slice(offset, offset + length)
+  }
+
+  async readWindow(offset: number, minLength: number) {
+    return { bytes: await this.read(offset, minLength), base: offset }
+  }
+
+  get totalSize() { return null }
+}
+
 const videoTrack = el(ID.trackEntry, concat(
   uintEl(ID.trackNumber, 1),
   uintEl(ID.trackType, 1),
@@ -141,6 +161,28 @@ describe('MatroskaParser metadata', () => {
     expect(metadata.tracks).toHaveLength(1)
     const packets = await parser.next()
     expect(packets[0].data.length).toBe(64)
+  })
+
+  it('does not cap an unknown-size remote file at the largest header window', async () => {
+    const header = concat(
+      el(ID.info, uintEl(ID.timecodeScale, 1_000_000, 4)),
+      el(ID.tracks, videoTrack),
+    )
+    const first = cluster(0, [simpleBlock(1, 0, 0x80, payload(64, 1))])
+    const declaredSegmentSize = 32 * 1024 * 1024
+    const file = concat(
+      el(ID.ebmlHeader, [0x42, 0x86, 0x81, 0x01]),
+      elWithDeclaredSize(ID.segment, concat(header, first), declaredSegmentSize),
+    )
+    const reader = new HiddenSizeReader(file)
+    const parser = new MatroskaParser(reader)
+
+    await parser.init()
+    expect((await parser.next())[0].data.length).toBe(64)
+    // The declared Segment end must remain beyond the old 16 MB fallback. A seek
+    // without Cues therefore probes the actual declared range instead of refusing it.
+    await parser.packetsFor(60)
+    expect(reader.calls.some((call) => call.offset > 16 * 1024 * 1024)).toBe(true)
   })
 })
 

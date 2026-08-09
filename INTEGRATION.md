@@ -291,7 +291,9 @@ Access-Control-Allow-Methods: GET, HEAD, OPTIONS
 Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges
 ```
 
-开发阶段可使用 `Access-Control-Allow-Origin: *`，但带 Cookie/Authorization 的请求不能与通配来源凭据混用。
+开发阶段可使用 `Access-Control-Allow-Origin: *`，但带 Cookie/Authorization 的请求不能与通配来源凭据混用。Chrome/Edge 142+ 对公网网页访问私网地址使用“本地网络访问”站点权限，不再要求旧版 Private Network Access 的 `Access-Control-Allow-Private-Network` 响应头。播放器会先从页面主线程发一个无正文的 `HEAD` 直连请求来触发权限提示，再启动 Worker。
+
+播放器不会通过服务器代理媒体。授权请求和 `RangeLoader` 的分片请求都直接使用传入的 `url`；私网响应只会在当前浏览器进程内从页面主线程交给解封装 Worker。部署站点只负责提供 HTML、脚本和样式，不会接收媒体正文。
 
 ### Range
 

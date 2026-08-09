@@ -12,6 +12,7 @@ import {
 } from '../lib/subtitle-style'
 import { WebCodecsEngine, type EngineStats } from '../lib/webcodecs'
 import { explainPlaybackError } from '../lib/playback-error'
+import { createDirectFetchHost, primeLocalNetworkAccess } from '../lib/direct-media'
 import type { MXPlayerDanmakuOptions, MXPlayerQuality, MXPlayerState } from '../player-api'
 import type { DemuxEvent, DemuxRequest, MKVPacket, ProbeInfo, SourceDescriptor, TrackInfo } from '../types'
 import { createDemuxWorker } from '../worker/create-demux-worker'
@@ -302,10 +303,29 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     worker.onmessageerror = () => {
       failWorker('WORKER_RUNTIME_FAILED', 'Worker 消息无法反序列化')
     }
-    worker.postMessage({ type: 'init', source } satisfies DemuxRequest)
-    const initTimer = window.setTimeout(() => {
-      if (!metadataReceivedRef.current && workerRef.current === worker) failWorker('DEMUX_INIT_TIMEOUT')
-    }, 15_000)
+    let cancelled = false
+    let initTimer: number | null = null
+    let fetchHost: ReturnType<typeof createDirectFetchHost> | null = null
+    void primeLocalNetworkAccess(source).then((localSource) => {
+      if (cancelled || workerRef.current !== worker) return
+      if (localSource) setProgress('本地网络已授权，正在读取媒体…')
+      if (localSource && source.kind === 'url') {
+        fetchHost = createDirectFetchHost(source.url)
+        worker.postMessage(
+          { type: 'init', source, fetchPort: fetchHost.port } satisfies DemuxRequest,
+          [fetchHost.port],
+        )
+      } else {
+        worker.postMessage({ type: 'init', source } satisfies DemuxRequest)
+      }
+      initTimer = window.setTimeout(() => {
+        if (!metadataReceivedRef.current && workerRef.current === worker) failWorker('DEMUX_INIT_TIMEOUT')
+      }, 15_000)
+    }).catch((accessError) => {
+      if (cancelled || workerRef.current !== worker) return
+      const detail = accessError instanceof Error ? accessError.message : String(accessError)
+      failWorker('LOCAL_NETWORK_ACCESS_BLOCKED', detail)
+    })
     const timer = window.setInterval(() => {
       const active = engineRef.current
       if (!active) return
@@ -322,8 +342,10 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       pumpRef.current()
     }, 100)
     return () => {
+      cancelled = true
       window.clearInterval(timer)
-      window.clearTimeout(initTimer)
+      if (initTimer !== null) window.clearTimeout(initTimer)
+      fetchHost?.close()
       worker.postMessage({ type: 'close' } satisfies DemuxRequest)
       worker.terminate()
       engine.close()

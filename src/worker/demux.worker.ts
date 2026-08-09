@@ -1,9 +1,11 @@
 import { MatroskaParser } from './ebml'
 import { RangeLoader } from '../lib/range-loader'
+import { createDirectFetchClient } from '../lib/direct-media'
 import type { DemuxEvent, DemuxRequest, TrackKind } from '../types'
 
 let parser: MatroskaParser | null = null
 let ready = false
+let fetchClient: ReturnType<typeof createDirectFetchClient> | null = null
 /**
  * Highest epoch the main thread has issued. Anything below it was superseded by a
  * later seek, and its reply would be discarded on arrival anyway.
@@ -41,7 +43,9 @@ async function handle(request: DemuxRequest): Promise<void> {
   try {
     if (request.type === 'init') {
       ready = false
-      const loader = new RangeLoader(request.source)
+      fetchClient?.close()
+      fetchClient = request.fetchPort ? createDirectFetchClient(request.fetchPort) : null
+      const loader = new RangeLoader(request.source, undefined, fetchClient?.fetch)
       parser = new MatroskaParser(loader)
       post({ type: 'progress', phase: '加载 TypeScript 解封装器', value: 0.08 })
       post({ type: 'progress', phase: '读取 Matroska 头部', value: 0.1 })
@@ -88,6 +92,8 @@ async function handle(request: DemuxRequest): Promise<void> {
     } else if (request.type === 'close') {
       parser = null
       ready = false
+      fetchClient?.close()
+      fetchClient = null
       post({ type: 'eof', epoch })
     }
   } catch (error) {

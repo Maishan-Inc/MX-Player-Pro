@@ -61,7 +61,9 @@ const player = new MXPlayer({
 
 ## 云端 URL 要求
 
-远程资源必须允许当前页面来源的 CORS，并支持 `GET` Range 请求，返回 `206 Partial Content` 与 `Content-Range`。页面不会代理请求。浏览器可以直接下载某个 URL，并不代表网页 JavaScript 有权限跨域读取它。
+远程资源必须允许当前页面来源的 CORS，并支持 `GET` Range 请求，返回 `206 Partial Content` 与 `Content-Range`。页面不会代理请求：播放时浏览器直接向你输入的媒体 URL 发起 Range 请求，媒体字节不会经过演示站点或播放器部署服务器。浏览器可以直接下载某个 URL，并不代表网页 JavaScript 有权限跨域读取它。
+
+公网 HTTPS 页面首次读取 `http://192.168.x.x` 等局域网地址时，Chrome/Edge 会询问是否允许“本地网络访问”。播放器先在页面主线程向原始 URL 发一个无正文的 `HEAD` 请求来触发授权；授权后，页面主线程继续向同一原始 URL 读取 Range，并只在当前浏览器进程内把响应交给解封装 Worker。部署站点不会接收媒体正文。若用户拒绝授权，请在地址栏的站点权限中重新允许。旧版浏览器若仍按混合内容规则阻止请求，请给媒体服务启用 HTTPS，或在局域网 HTTP 页面打开播放器。
 
 ## 开发
 

@@ -7,7 +7,14 @@ describe('playback error explanation', () => {
 
     expect(message).toContain('Access-Control-Allow-Origin')
     expect(message).toContain('Content-Range')
-    expect(message).toContain('直接下载')
+    expect(message).toContain('不会经过播放器部署服务器')
+  })
+
+  it('explains a denied local-network permission without suggesting a proxy', () => {
+    const message = explainPlaybackError('LOCAL_NETWORK_ACCESS_BLOCKED:Failed to fetch')
+    expect(message).toContain('本地网络访问')
+    expect(message).toContain('站点权限')
+    expect(message).toContain('直连源地址')
   })
 
   it('keeps unrelated decoder errors intact', () => {

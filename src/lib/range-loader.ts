@@ -1,4 +1,5 @@
 import type { ProbeInfo, SourceDescriptor } from '../types'
+import type { MediaFetch } from './direct-media'
 
 /**
  * Chunk size is deliberately small. Reads are cached per aligned chunk and missing
@@ -17,6 +18,7 @@ const RETRY_DELAY_MS = 200
 export class RangeLoader {
   private readonly source: SourceDescriptor
   private readonly chunkSize: number
+  private readonly fetcher: MediaFetch
   /** Aligned chunk index -> bytes. Insertion order doubles as LRU order. */
   private readonly chunks = new Map<number, Uint8Array<ArrayBuffer>>()
   private readonly inflight = new Map<number, Promise<void>>()
@@ -28,9 +30,10 @@ export class RangeLoader {
   private fullBody: Uint8Array<ArrayBuffer> | null = null
   private lastProbe: ProbeInfo = { size: null, contentType: null, acceptsRanges: false, status: null, cors: 'unknown' }
 
-  constructor(source: SourceDescriptor, chunkSize = DEFAULT_CHUNK_SIZE) {
+  constructor(source: SourceDescriptor, chunkSize = DEFAULT_CHUNK_SIZE, fetcher: MediaFetch = (url, init) => fetch(url, init)) {
     this.source = source
     this.chunkSize = chunkSize
+    this.fetcher = fetcher
   }
 
   async probe(): Promise<ProbeInfo> {
@@ -44,7 +47,9 @@ export class RangeLoader {
 
     let head: Response | null = null
     try {
-      head = await fetch(this.source.url, { method: 'HEAD', redirect: 'follow' })
+      // Media bytes stay on the browser -> source connection. Explicit CORS mode
+      // documents that this is a direct cross-origin read; the app never proxies it.
+      head = await this.fetcher(this.source.url, { method: 'HEAD', mode: 'cors', redirect: 'follow' })
     } catch {
       // A blocked or unsupported HEAD is followed by a CORS-readable GET probe.
     }
@@ -65,8 +70,9 @@ export class RangeLoader {
     }
 
     try {
-      const response = await fetch(this.source.url, {
+      const response = await this.fetcher(this.source.url, {
         headers: { Range: 'bytes=0-0' },
+        mode: 'cors',
         redirect: 'follow',
       })
       this.updateFromResponse(response)
@@ -228,7 +234,7 @@ export class RangeLoader {
     let lastError: unknown = null
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await fetch(url, { headers, redirect: 'follow' })
+        const response = await this.fetcher(url, { headers, mode: 'cors', redirect: 'follow' })
         // One transient 5xx should cost a retry, not the whole playback session.
         if (response.status >= 500 && attempt === 0) {
           await delay(RETRY_DELAY_MS)

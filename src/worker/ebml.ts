@@ -113,7 +113,10 @@ export class MatroskaParser {
     const probe = await this.loader.probe()
     if (probe.cors === 'blocked') throw new Error(`CORS_BLOCKED:${probe.message || ''}`)
 
-    const total = probe.size ?? this.loader.totalSize ?? HEADER_WINDOWS[HEADER_WINDOWS.length - 1]
+    // Content-Range is not a CORS-safelisted response header. A source can allow the
+    // 206 body while hiding its total size unless it explicitly exposes that header.
+    // Keep the segment unbounded instead of pretending an unknown file ends at 16 MB.
+    const total = probe.size ?? this.loader.totalSize ?? Number.POSITIVE_INFINITY
     let bytes: Uint8Array<ArrayBuffer> = new Uint8Array()
     let segment: Element | null = null
     let sawTracks = false

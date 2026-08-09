@@ -1,7 +1,9 @@
-const CORS_GUIDANCE = '媒体服务器拒绝网页跨域读取。直接下载可用不代表网页可以读取响应；请为媒体响应配置 Access-Control-Allow-Origin，并允许 GET、HEAD、OPTIONS，暴露 Content-Length、Content-Range、Accept-Ranges。'
+const CORS_GUIDANCE = '媒体服务器拒绝网页跨域读取。请为媒体响应配置 Access-Control-Allow-Origin，并允许 GET、HEAD、OPTIONS，暴露 Content-Length、Content-Range、Accept-Ranges。媒体仍由浏览器直连源地址，不会经过播放器部署服务器。'
+const LOCAL_NETWORK_GUIDANCE = '浏览器没有允许此网页访问局域网媒体。请在地址栏的站点权限中允许“本地网络访问”后重新读取；旧版浏览器若仍阻止 HTTPS 页面访问 HTTP 媒体，请给媒体服务启用 HTTPS，或从局域网 HTTP 页面打开播放器。媒体流量始终由浏览器直连源地址，不会经过播放器部署服务器。'
 
 const MESSAGES: Array<[RegExp, string | ((detail: string) => string)]> = [
   [/^CORS_BLOCKED(?:$|:)/i, CORS_GUIDANCE],
+  [/^LOCAL_NETWORK_ACCESS_BLOCKED(?:$|:)/i, LOCAL_NETWORK_GUIDANCE],
   [/^RANGE_HTTP_401(?:$|:)/i, '媒体地址返回 401 Unauthorized，签名或访问凭证无效。请重新生成直链。'],
   [/^RANGE_HTTP_403(?:$|:)/i, '媒体地址返回 403 Forbidden，当前来源没有读取权限。'],
   [/^RANGE_UNSUPPORTED(?:$|:)/i, '媒体服务器没有返回 206 Partial Content，无法按需定位读取。'],

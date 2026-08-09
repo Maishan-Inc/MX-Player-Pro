@@ -12,6 +12,10 @@ function rangeHeaderOf(call: unknown[] | undefined): string | undefined {
   return init?.headers?.Range
 }
 
+function modeOf(call: unknown[] | undefined): RequestMode | undefined {
+  return (call?.[1] as RequestInit | undefined)?.mode
+}
+
 /** Serve any Range request out of a fixture body, recording each requested span. */
 function serveRanges(body: number[]) {
   const requests: Array<[number, number]> = []
@@ -41,7 +45,11 @@ describe('RangeLoader', () => {
     expect(probe.acceptsRanges).toBe(true)
     expect(loader.supportsRange).toBe(true)
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][0]).toBe(source.url)
+    expect(modeOf(fetchMock.mock.calls[0])).toBe('cors')
     expect(rangeHeaderOf(fetchMock.mock.calls[1])).toBe('bytes=0-0')
+    expect(fetchMock.mock.calls[1][0]).toBe(source.url)
+    expect(modeOf(fetchMock.mock.calls[1])).toBe('cors')
   })
 
   it('reads by slicing a full response when the server ignores Range', async () => {
@@ -67,6 +75,8 @@ describe('RangeLoader', () => {
 
     await expect(loader.read(2, 2)).resolves.toEqual(new Uint8Array([30, 40]))
     expect(rangeHeaderOf(fetchMock.mock.calls[1])).toBe('bytes=2-3')
+    expect(fetchMock.mock.calls[1][0]).toBe(source.url)
+    expect(modeOf(fetchMock.mock.calls[1])).toBe('cors')
   })
 })
 
