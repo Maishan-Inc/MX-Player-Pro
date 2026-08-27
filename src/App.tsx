@@ -286,7 +286,13 @@ function FAQ() {
 function MXMaxPromo() {
   return (
     <section className="mxmax-promo" aria-labelledby="mxmax-heading">
-      <div className="mxmax-promo-grid" aria-hidden="true" />
+      <div className="mxmax-promo-grid" aria-hidden="true">
+        {Array.from({ length: 192 }, (_, index) => {
+          const column = index % 16
+          const row = Math.floor(index / 16)
+          return <i key={index} data-tone={index % 6} style={{ '--tile-delay': `${-(column * 0.13 + row * 0.07)}s`, '--tile-offset': `${(row % 3) * 3}px` } as React.CSSProperties} />
+        })}
+      </div>
       <div className="mxmax-promo-scan" aria-hidden="true" />
       <div className="mxmax-promo-content">
         <div className="mxmax-promo-kicker"><Sparkles size={15} aria-hidden="true" /> 正在开发</div>
