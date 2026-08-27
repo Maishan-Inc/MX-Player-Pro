@@ -4,6 +4,7 @@ import type { SourceDescriptor } from './types'
 import PlayerSurface from './components/PlayerSurface'
 import IntegrationSection from './components/IntegrationSection'
 import Playground from './components/Playground'
+import ShaderBackground from './components/ShaderBackground'
 
 const RECENT_URL_KEY = 'mx-player-pro:recent-url'
 const GITHUB_URL = 'https://github.com/Maishan-Inc/MX-Player-Pro'
