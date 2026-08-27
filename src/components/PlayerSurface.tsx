@@ -238,7 +238,9 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     }
 
     const selectedFormat = normalizeMediaFormat(source, source.kind === 'url' ? format : 'mkv')
+    console.log(`[MX Player] Backend selection: selectedFormat=${selectedFormat}, source.kind=${source.kind}, hlsVideoRef.current=${!!hlsVideoRef.current}`)
     if (selectedFormat === 'hls' && source.kind === 'url' && hlsVideoRef.current) {
+      console.log('[MX Player] Initializing HLS backend')
       setBackendKind('hls')
       setHlsLive(false)
       setHlsQualities([])
@@ -283,6 +285,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       return () => { window.clearInterval(timer); backend.destroy(); hlsBackendRef.current = null; readyRef.current = false }
     }
     if (selectedFormat === 'native' && source.kind === 'url' && hlsVideoRef.current) {
+      console.log('[MX Player] Initializing Native backend')
       setBackendKind('native')
       setMetadata(null); setProbe(null); setProgress('正在加载媒体…'); setError(''); setPlaying(false); setCurrentTime(0); setStats(EMPTY_STATS)
       const backend = new NativeBackend(hlsVideoRef.current, (event) => {
@@ -300,6 +303,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       const timer = window.setInterval(() => { const s = backend.getSnapshot(); setCurrentTime(s.currentTime); setStats({ ...EMPTY_STATS, currentTime: s.currentTime, bufferedStart: s.bufferedStart, bufferedEnd: s.bufferedEnd, bufferedAhead: s.bufferedAhead, stalled: s.stalled }); if (Number.isFinite(s.duration) && s.duration > 0) setMetadata((current) => current && current.duration !== s.duration ? { ...current, duration: s.duration } : current); propsRef.current.onTimeUpdate?.({ currentTime: s.currentTime, duration: s.duration }) }, 250)
       return () => { window.clearInterval(timer); backend.destroy(); readyRef.current = false }
     }
+    console.log('[MX Player] Initializing MKV backend (WebCodecs)')
     setBackendKind('mkv')
     if (!canvas) return
 

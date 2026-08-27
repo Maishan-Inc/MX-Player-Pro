@@ -39,6 +39,7 @@ export class HlsBackend implements PlaybackBackend {
   }
 
   async load(source: SourceDescriptor): Promise<void> {
+    console.log('[MX Player HLS] load() called, source:', source)
     if (source.kind !== 'url') throw new Error('HLS_UNSUPPORTED:本地 m3u8 文件暂不支持')
     this.destroyRuntime()
     this.recoveryCount = 0
@@ -52,12 +53,15 @@ export class HlsBackend implements PlaybackBackend {
     // Native HLS is intentionally limited to Apple WebKit; other browsers must use
     // hls.js + MSE so TS/fMP4 playlists are actually demuxed.
     const native = isAppleHlsPlatform() && (this.video.canPlayType('application/vnd.apple.mpegurl') !== '' || this.video.canPlayType('application/x-mpegURL') !== '')
+    console.log(`[MX Player HLS] native=${native}, MediaSource=${typeof MediaSource}, Hls.isSupported()=${Hls.isSupported()}`)
     if (native) {
+      console.log('[MX Player HLS] Using native HLS (Safari/iOS)')
       this.video.src = url
       this.video.load()
       return
     }
     if (typeof MediaSource === 'undefined' || !Hls.isSupported()) throw new Error('HLS_UNSUPPORTED')
+    console.log('[MX Player HLS] Using hls.js with MSE')
     const hls = new Hls({
       enableWorker: true,
       lowLatencyMode: this.options.lowLatencyMode ?? false,
@@ -67,6 +71,7 @@ export class HlsBackend implements PlaybackBackend {
     })
     this.hls = hls
     hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+      console.log('[MX Player HLS] MANIFEST_PARSED, levels:', data.levels.length)
       this.tracks = this.mapTracks(data.levels)
       this.qualities = data.levels.map((level, index) => ({ id: String(index), label: level.height ? `${level.height}p` : `${Math.round((level.bitrate || 0) / 1000)} kbps` }))
       this.ready = true
@@ -86,17 +91,20 @@ export class HlsBackend implements PlaybackBackend {
       this.emit({ type: 'tracksupdate' })
     })
     hls.on(Hls.Events.ERROR, (_event, data) => {
+      console.log('[MX Player HLS] ERROR event:', { fatal: data.fatal, type: data.type, details: data.details })
       if (!data.fatal) return
       const detail = String(data.details || '')
       if (/cors/i.test(detail)) { this.emit({ type: 'error', code: 'HLS_CORS_BLOCKED', detail }); return }
       if (this.recoveryCount >= 3) { this.emit({ type: 'error', code: 'HLS_FATAL_ERROR', detail: `恢复次数已达上限（${detail || '未知错误'}）` }); return }
       this.recoveryCount += 1
+      console.log(`[MX Player HLS] Attempting recovery ${this.recoveryCount}/3`)
       // A fatal hls.js error can still be recovered. Do not raise the user-facing
       // error overlay until all three recovery attempts have failed.
       if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(); return }
       if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); return }
       this.emit({ type: 'error', code: /manifest/i.test(detail) ? 'HLS_MANIFEST_ERROR' : 'HLS_FATAL_ERROR', detail })
     })
+    console.log('[MX Player HLS] Attaching media and loading source:', url.slice(0, 100))
     hls.attachMedia(this.video)
     hls.loadSource(url)
   }
