@@ -4,7 +4,7 @@ import type { HlsBackendEvent } from './hls-backend'
 
 /** Browser-native backend for progressive MP4/WebM/Ogg media. */
 export class NativeBackend implements PlaybackBackend {
-  readonly kind = 'hls' as const
+  readonly kind = 'native' as const
   private readonly video: HTMLVideoElement
   private readonly emit: (event: HlsBackendEvent) => void
   private tracks: TrackInfo[] = []

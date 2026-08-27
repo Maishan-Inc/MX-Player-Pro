@@ -1,6 +1,6 @@
 import type { SourceDescriptor, TrackInfo } from '../types'
 
-export type BackendKind = 'mkv' | 'hls'
+export type BackendKind = 'mkv' | 'hls' | 'native'
 
 export interface BackendSnapshot {
   ready: boolean

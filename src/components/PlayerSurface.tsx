@@ -277,7 +277,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
         setHlsLive(snapshot.live)
         setCurrentTime(snapshot.currentTime)
         setStats({ ...EMPTY_STATS, currentTime: snapshot.currentTime, bufferedStart: snapshot.bufferedStart, bufferedEnd: snapshot.bufferedEnd, bufferedAhead: snapshot.bufferedAhead, stalled: snapshot.stalled })
-        if (metadata && metadata.duration !== snapshot.duration) setMetadata((current) => current ? { ...current, duration: snapshot.duration } : current)
+        if (Number.isFinite(snapshot.duration) && snapshot.duration > 0) setMetadata((current) => current && current.duration !== snapshot.duration ? { ...current, duration: snapshot.duration } : current)
         propsRef.current.onTimeUpdate?.({ currentTime: snapshot.currentTime, duration: snapshot.duration })
       }, 250)
       return () => { window.clearInterval(timer); backend.destroy(); hlsBackendRef.current = null; readyRef.current = false }
@@ -297,7 +297,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       })
       hlsBackendRef.current = backend as unknown as HlsBackend
       void backend.load(source).catch((loadError) => { const message = explainPlaybackError(loadError instanceof Error ? loadError.message : String(loadError)); setError(message); propsRef.current.onError?.({ message }) })
-      const timer = window.setInterval(() => { const s = backend.getSnapshot(); setCurrentTime(s.currentTime); setStats({ ...EMPTY_STATS, currentTime: s.currentTime, bufferedStart: s.bufferedStart, bufferedEnd: s.bufferedEnd, bufferedAhead: s.bufferedAhead, stalled: s.stalled }); propsRef.current.onTimeUpdate?.({ currentTime: s.currentTime, duration: s.duration }) }, 250)
+      const timer = window.setInterval(() => { const s = backend.getSnapshot(); setCurrentTime(s.currentTime); setStats({ ...EMPTY_STATS, currentTime: s.currentTime, bufferedStart: s.bufferedStart, bufferedEnd: s.bufferedEnd, bufferedAhead: s.bufferedAhead, stalled: s.stalled }); if (Number.isFinite(s.duration) && s.duration > 0) setMetadata((current) => current && current.duration !== s.duration ? { ...current, duration: s.duration } : current); propsRef.current.onTimeUpdate?.({ currentTime: s.currentTime, duration: s.duration }) }, 250)
       return () => { window.clearInterval(timer); backend.destroy(); readyRef.current = false }
     }
     setBackendKind('mkv')
@@ -1018,6 +1018,17 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     else engineRef.current?.setVolume(next ? 0 : volume)
   }
 
+  const backendStatus = backendKind === 'mkv'
+    ? (stats.stalled ? '缓冲中…' : engineStatus)
+    : backendKind === 'hls'
+      ? (stats.stalled ? 'HLS 缓冲中…' : `HLS ${hlsLive ? '直播' : 'VOD'} · 浏览器媒体管线`)
+      : (stats.stalled ? '媒体缓冲中…' : '原生 MP4/WebM · 浏览器媒体管线')
+  const mediaCodecSummary = backendKind === 'mkv'
+    ? codecSummary
+    : backendKind === 'hls'
+      ? 'HLS 自适应流'
+      : '浏览器原生解码'
+
   const statsRows: Array<[string, string]> = [
     ['源', source?.kind === 'file' ? '本地文件' : source ? safeHostname(label) : '未加载'],
     ['后端', backendKind === 'hls' ? `HLS${hlsLive ? ' · 直播' : ' · VOD'}` : backendKind === 'native' ? '原生 MP4/WebM' : 'MKV · WebCodecs'],
@@ -1030,7 +1041,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     ['字幕', `${allSubtitleTracks.length} 条（${subtitleTracks.length} 条可用）`],
     ['缓冲', `${stats.bufferedAhead.toFixed(1)} 秒 · ${formatBytes(stats.bufferedBytes)}`],
     ['丢帧', String(stats.droppedFrames)],
-    ['解码器', engineStatus],
+    ['解码器', backendStatus],
   ]
 
   return (
@@ -1140,10 +1151,10 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
             {contextMenu.open && <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} onStats={openStats} onAbout={openAbout} />}
           </div>
           {!embedded && <div className="player-status-line">
-            <span>{stats.stalled ? '缓冲中…' : engineStatus}</span>
+            <span>{backendStatus}</span>
             <span>已缓冲 {stats.bufferedAhead.toFixed(1)} 秒</span>
             <span>当前时间 {formatTime(currentTime)}</span>
-            <span className="player-codec-summary">{codecSummary}</span>
+            <span className="player-codec-summary">{mediaCodecSummary}</span>
           </div>}
         </section>
       </main>
