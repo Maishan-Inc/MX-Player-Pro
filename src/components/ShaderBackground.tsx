@@ -173,7 +173,7 @@ void main(){
     }
 
     function resize() {
-      if (!canvas || !root) return
+      if (!canvas || !root || !gl) return
       const dpr = Math.min(window.devicePixelRatio || 1, 1.75)
       const w = Math.max(1, Math.floor(root.clientWidth * dpr))
       const h = Math.max(1, Math.floor(root.clientHeight * dpr))
