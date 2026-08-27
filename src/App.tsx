@@ -285,28 +285,49 @@ function FAQ() {
 }
 
 function MXMaxPromo() {
+  const capabilities = [
+    { icon: Globe2, label: '任意视频文件', desc: '支持所有主流视频格式，无需转码' },
+    { icon: Cpu, label: 'AI 超分辨率', desc: '实时提升画质，低分辨率视频也能获得清晰体验' },
+    { icon: ScanLine, label: 'AI 插帧', desc: '智能补帧至 60/120 FPS，观影更流畅' },
+  ]
+
   return (
     <section className="mxmax-promo" aria-labelledby="mxmax-heading">
-      <div className="mxmax-promo-grid" aria-hidden="true">
-        {Array.from({ length: 192 }, (_, index) => {
-          const column = index % 16
-          const row = Math.floor(index / 16)
-          return <i key={index} data-tone={index % 6} style={{ '--tile-delay': `${-(column * 0.13 + row * 0.07)}s`, '--tile-offset': `${(row % 3) * 3}px` } as React.CSSProperties} />
-        })}
-      </div>
-      <div className="mxmax-promo-scan" aria-hidden="true" />
-      <div className="mxmax-promo-content">
-        <div className="mxmax-promo-kicker"><Sparkles size={15} aria-hidden="true" /> 正在开发</div>
-        <h2 id="mxmax-heading">MX Player Max</h2>
-        <p className="mxmax-promo-lead">我们正在开发 MX Player Max</p>
-        <p className="mxmax-promo-copy">这是一个可以在浏览器播放任意视频文件，并支持 AI 超分辨率与 AI 插帧的 Web3 播放器。</p>
-        <div className="mxmax-promo-capabilities" aria-label="MX Player Max 能力">
-          <span><Globe2 size={15} aria-hidden="true" /> 任意视频文件</span>
-          <span><Cpu size={15} aria-hidden="true" /> AI 超分辨率</span>
-          <span><ScanLine size={15} aria-hidden="true" /> AI 插帧</span>
+      <div className="mxmax-promo-inner">
+        <ShaderBackground className="mxmax-promo-shader" />
+
+        <div className="mxmax-promo-header">
+          <span className="mxmax-promo-badge">
+            <Sparkles size={13} aria-hidden="true" />
+            正在开发
+          </span>
+          <h2 id="mxmax-heading" className="mxmax-promo-title">
+            我们正在开发 <em>MX Player Max</em>
+          </h2>
+          <p className="mxmax-promo-lead">
+            这是一个可以在浏览器播放任意视频文件，并支持 AI 超分辨率与 AI 插帧的 Web3 播放器。
+          </p>
+        </div>
+
+        <div className="mxmax-promo-grid">
+          {capabilities.map((item) => (
+            <article className="mxmax-promo-card" key={item.label}>
+              <span className="mxmax-promo-card-icon">
+                <item.icon size={17} aria-hidden="true" />
+              </span>
+              <h3 className="mxmax-promo-card-title">{item.label}</h3>
+              <p className="mxmax-promo-card-desc">{item.desc}</p>
+            </article>
+          ))}
+        </div>
+
+        <div className="mxmax-promo-footer">
+          <p>
+            <strong>MX Player Max</strong> 尚在概念阶段，功能设计与技术实现均在探索中。
+            如果您对这个项目感兴趣，欢迎在 <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a> 上提出建议。
+          </p>
         </div>
       </div>
-      <div className="mxmax-promo-mark" aria-hidden="true">MAX<span>·</span>LAB</div>
     </section>
   )
 }

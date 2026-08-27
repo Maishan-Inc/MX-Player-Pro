@@ -152,27 +152,28 @@ void main(){
       const isDark = document.documentElement.dataset.theme === 'dark'
 
       if (isDark) {
-        // 深色模式：赛博紫粉渐变 + 霓虹橙
+        // 深色模式：科幻蓝紫色 + 电光青色
         return {
-          base1: [0.58, 0.20, 0.70],      // 深紫
-          base2: [0.75, 0.25, 0.65],      // 紫红
-          accent1: [0.90, 0.35, 0.60],    // 亮粉
-          accent2: [0.95, 0.50, 0.30],    // 霓虹橙
-          accent3: [0.40, 0.40, 0.85]     // 电光蓝紫
+          base1: [0.08, 0.15, 0.35],      // 深蓝
+          base2: [0.15, 0.22, 0.50],      // 钴蓝
+          accent1: [0.20, 0.50, 0.85],    // 电光蓝
+          accent2: [0.30, 0.85, 0.95],    // 霓虹青
+          accent3: [0.45, 0.30, 0.80]     // 紫蓝
         }
       } else {
-        // 浅色模式：柔和紫粉调
+        // 浅色模式：柔和科幻调
         return {
-          base1: [0.85, 0.70, 0.90],      // 浅紫
-          base2: [0.90, 0.75, 0.85],      // 浅粉紫
-          accent1: [0.75, 0.50, 0.80],    // 中紫
-          accent2: [0.95, 0.60, 0.70],    // 粉色
-          accent3: [0.65, 0.55, 0.90]     // 蓝紫
+          base1: [0.75, 0.85, 0.95],      // 浅冰蓝
+          base2: [0.70, 0.80, 0.92],      // 天蓝
+          accent1: [0.40, 0.65, 0.90],    // 中蓝
+          accent2: [0.35, 0.75, 0.85],    // 青色
+          accent3: [0.55, 0.50, 0.85]     // 淡紫蓝
         }
       }
     }
 
     function resize() {
+      if (!canvas || !root) return
       const dpr = Math.min(window.devicePixelRatio || 1, 1.75)
       const w = Math.max(1, Math.floor(root.clientWidth * dpr))
       const h = Math.max(1, Math.floor(root.clientHeight * dpr))
@@ -197,7 +198,7 @@ void main(){
 
     function frame(t: number) {
       if (!start) start = t
-      if (visible) {
+      if (visible && canvas && gl) {
         resize()
         gl.useProgram(program)
         gl.uniform2f(uRes, canvas.width, canvas.height)

@@ -185,27 +185,26 @@ a { color: inherit; text-decoration: none; }
 /* MX Player Max preview: a compact product stage below the FAQ. The animated grid
    uses theme tokens so the scene changes with the page instead of importing the
    pink/purple reference palette. */
-.mxmax-promo { position: relative; isolation: isolate; min-height: 360px; margin-top: clamp(56px, 10vh, 104px); overflow: hidden; border: 1px solid var(--max-line); border-radius: 18px; background: var(--max-bg); color: var(--max-ink); }
-.mxmax-promo::before { content: ''; position: absolute; z-index: -3; inset: 0; background: var(--max-bg); }
-.mxmax-promo-grid { position: absolute; z-index: -2; inset: -8% -5%; display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); grid-template-rows: repeat(12, minmax(0, 1fr)); gap: 4px; padding: 26px; opacity: .78; transform: perspective(520px) rotateX(8deg) rotateY(-7deg) scale(1.12); transform-origin: center; }
-.mxmax-promo-grid i { display: block; min-width: 0; min-height: 0; border: 1px solid var(--max-line); border-radius: 3px; background: var(--max-tile-a); box-shadow: 0 0 18px color-mix(in srgb, var(--max-tile-a) 35%, transparent); animation: mxmax-tile-wave 4.8s ease-in-out infinite; animation-delay: var(--tile-delay); transform: translateY(var(--tile-offset)); }
-.mxmax-promo-grid i[data-tone="1"], .mxmax-promo-grid i[data-tone="4"] { background: var(--max-tile-b); }
-.mxmax-promo-grid i[data-tone="2"], .mxmax-promo-grid i[data-tone="5"] { background: var(--max-tile-c); }
-.mxmax-promo-grid i[data-tone="3"] { background: var(--max-tile-d); }
-.mxmax-promo-scan { position: absolute; z-index: -1; inset: 0; opacity: .2; background: linear-gradient(110deg, transparent 0 30%, var(--max-accent) 49%, transparent 68%); transform: translateX(-120%); animation: mxmax-scan 7s ease-in-out infinite; pointer-events: none; }
-.mxmax-promo-content { position: relative; z-index: 1; display: grid; align-content: center; justify-items: start; max-width: 660px; min-height: 360px; padding: clamp(34px, 7vw, 72px); }
-.mxmax-promo-kicker { display: inline-flex; align-items: center; gap: 7px; min-height: 28px; margin-bottom: 18px; border: 1px solid var(--max-line); border-radius: 999px; background: color-mix(in srgb, var(--max-bg) 72%, transparent); padding: 0 11px; color: var(--max-accent); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.mxmax-promo h2 { margin: 0; color: var(--max-ink); font-size: clamp(34px, 5vw, 64px); line-height: 1; letter-spacing: .01em; }
-.mxmax-promo-lead { margin: 18px 0 0; color: var(--max-ink); font-size: clamp(17px, 2.2vw, 24px); font-weight: 750; line-height: 1.3; }
-.mxmax-promo-copy { max-width: 520px; margin: 10px 0 0; color: var(--max-muted); font-size: 13px; line-height: 1.75; }
-.mxmax-promo-capabilities { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
-.mxmax-promo-capabilities span { display: inline-flex; align-items: center; gap: 6px; min-height: 31px; border: 1px solid var(--max-line); border-radius: 5px; background: color-mix(in srgb, var(--max-bg) 62%, transparent); padding: 0 10px; color: var(--max-ink); font-size: 11px; font-weight: 700; }
-.mxmax-promo-capabilities svg { color: var(--max-accent); }
-.mxmax-promo-mark { position: absolute; right: clamp(24px, 6vw, 76px); bottom: clamp(22px, 5vw, 56px); color: var(--max-ink); opacity: .12; font-size: clamp(28px, 7vw, 82px); font-weight: 900; letter-spacing: .14em; user-select: none; }
-.mxmax-promo-mark span { color: var(--max-accent); }
-@keyframes mxmax-tile-wave { 0%, 100% { transform: translateY(var(--tile-offset)) scaleY(.9); opacity: .62; } 50% { transform: translateY(calc(var(--tile-offset) - 22px)) scaleY(1.08); opacity: .95; } }
-@keyframes mxmax-scan { 0%, 100% { transform: translateX(-120%); } 48%, 62% { transform: translateX(120%); } }
-@media (prefers-reduced-motion: reduce) { .mxmax-promo-grid i, .mxmax-promo-scan { animation: none; } }
+.mxmax-promo { position: relative; isolation: isolate; margin-top: clamp(56px, 10vh, 104px); overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.mxmax-promo-inner { position: relative; display: flex; flex-direction: column; gap: clamp(28px, 4vw, 48px); padding: clamp(34px, 5vw, 56px); }
+.mxmax-promo-shader { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; opacity: 0.15; pointer-events: none; }
+.mxmax-promo-shader canvas { display: block; width: 100%; height: 100%; border-radius: inherit; }
+.mxmax-promo-header { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 14px; }
+.mxmax-promo-badge { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; min-height: 26px; padding: 0 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-raised); color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.mxmax-promo-title { margin: 0; color: var(--text); font-size: clamp(26px, 4.5vw, 42px); font-weight: 700; line-height: 1.2; letter-spacing: -.02em; }
+.mxmax-promo-title em { color: var(--accent); font-style: normal; }
+.mxmax-promo-lead { max-width: 720px; margin: 0; color: var(--muted); font-size: clamp(14px, 1.8vw, 16px); line-height: 1.65; }
+.mxmax-promo-grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.mxmax-promo-card { display: flex; flex-direction: column; gap: 10px; padding: 22px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface); transition: border-color .2s ease, background .2s ease; }
+.mxmax-promo-card:hover { border-color: var(--line); background: var(--surface-raised); }
+.mxmax-promo-card-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.mxmax-promo-card-title { margin: 0; color: var(--text); font-size: 15px; font-weight: 650; line-height: 1.3; }
+.mxmax-promo-card-desc { margin: 0; color: var(--dim); font-size: 13px; line-height: 1.55; }
+.mxmax-promo-footer { position: relative; z-index: 1; padding-top: clamp(20px, 3vw, 32px); border-top: 1px solid var(--line-soft); }
+.mxmax-promo-footer p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.mxmax-promo-footer strong { color: var(--text); font-weight: 650; }
+.mxmax-promo-footer a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.mxmax-promo-footer a:hover { color: var(--text); }
 
 .player-topbar { justify-content: space-between; padding-left: clamp(14px, 3vw, 36px); padding-right: clamp(14px, 3vw, 36px); }
 .back-button { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--muted); padding: 8px 0; font-size: 12px; }
@@ -450,13 +449,15 @@ a { color: inherit; text-decoration: none; }
   .faq-question { padding: 13px 15px; font-size: 12.5px; }
   .faq-answer > p { font-size: 12px; padding: 0 15px; }
   .faq-item.is-open .faq-answer > p { padding-bottom: 14px; }
-  .mxmax-promo { min-height: 390px; margin-top: 44px; border-radius: 12px; }
-  .mxmax-promo-content { min-height: 390px; padding: 34px 24px 78px; }
-  .mxmax-promo h2 { font-size: 38px; }
-  .mxmax-promo-copy { font-size: 12px; }
-  .mxmax-promo-capabilities { gap: 6px; }
-  .mxmax-promo-capabilities span { font-size: 10px; padding-inline: 8px; }
-  .mxmax-promo-mark { right: 20px; bottom: 20px; font-size: 28px; }
+  .mxmax-promo { margin-top: 44px; border-radius: 10px; }
+  .mxmax-promo-inner { padding: 28px 20px; gap: 24px; }
+  .mxmax-promo-title { font-size: 24px; }
+  .mxmax-promo-lead { font-size: 14px; }
+  .mxmax-promo-grid { grid-template-columns: 1fr; gap: 12px; }
+  .mxmax-promo-card { padding: 18px; }
+  .mxmax-promo-card-icon { width: 32px; height: 32px; }
+  .mxmax-promo-footer { padding-top: 20px; }
+  .mxmax-promo-footer p { font-size: 12px; }
   .run-button kbd { display: none; }
   .site-footer { padding: 16px 12px; font-size: 10px; }
   .player-topbar { min-height: 56px; padding-left: 14px; padding-right: 14px; }
