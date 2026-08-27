@@ -1,5 +1,5 @@
 import Hls from 'hls.js'
-import type { MediaFormat, SourceDescriptor, TrackInfo } from '../types'
+import type { SourceDescriptor, TrackInfo } from '../types'
 import type { BackendSnapshot, PlaybackBackend } from './playback-backend'
 
 export interface HlsBackendOptions {
@@ -47,7 +47,11 @@ export class HlsBackend implements PlaybackBackend {
     const url = source.url.trim()
     if (!url) throw new Error('HLS_MANIFEST_ERROR:缺少播放地址')
     this.bindMediaEvents()
-    const native = this.video.canPlayType('application/vnd.apple.mpegurl') !== '' || this.video.canPlayType('application/x-mpegURL') !== ''
+    // `canPlayType()` is overly optimistic in a few Chromium builds and may return
+    // "maybe" for HLS even though the browser cannot consume an m3u8 natively.
+    // Native HLS is intentionally limited to Apple WebKit; other browsers must use
+    // hls.js + MSE so TS/fMP4 playlists are actually demuxed.
+    const native = isAppleHlsPlatform() && (this.video.canPlayType('application/vnd.apple.mpegurl') !== '' || this.video.canPlayType('application/x-mpegURL') !== '')
     if (native) {
       this.video.src = url
       this.video.load()
@@ -156,4 +160,14 @@ export class HlsBackend implements PlaybackBackend {
     const audioTracks = audioList ? Array.from(audioList).map((track, index) => ({ id: 1000 + index, kind: 'audio' as const, codecId: 'hls-audio', language: track.language, name: track.label || track.language })) : []
     this.tracks = [...this.tracks.filter((track) => track.kind === 'video'), ...audioTracks, ...textTracks]
   }
+}
+
+export function isAppleHlsPlatform(input?: { userAgent?: string; vendor?: string; maxTouchPoints?: number }): boolean {
+  if (typeof navigator === 'undefined' && !input) return false
+  const platform = input ?? navigator
+  const ua = platform.userAgent || ''
+  const appleVendor = platform.vendor === 'Apple Computer, Inc.'
+  const ios = /iPad|iPhone|iPod/i.test(ua) || (/Macintosh/i.test(ua) && (platform.maxTouchPoints || 0) > 1)
+  const safari = /Safari\//i.test(ua) && !/(CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium|Edg|Firefox|Android)/i.test(ua)
+  return ios || (appleVendor && safari)
 }
