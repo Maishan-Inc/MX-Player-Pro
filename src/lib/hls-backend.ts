@@ -119,7 +119,12 @@ export class HlsBackend implements PlaybackBackend {
     for (let i = 0; i < this.video.buffered.length; i += 1) {
       if (current >= this.video.buffered.start(i) && current <= this.video.buffered.end(i)) { bufferedStart = this.video.buffered.start(i); bufferedEnd = this.video.buffered.end(i); break }
     }
-    return { ready: this.ready, playing: !this.video.paused, currentTime: current, duration: Number.isFinite(this.video.duration) ? this.video.duration : 0, bufferedStart, bufferedEnd, bufferedAhead: Math.max(0, bufferedEnd - current), stalled: this.video.readyState < 3 && !this.video.paused, live: this.live }
+    let seekableStart = 0; let seekableEnd = Number.isFinite(this.video.duration) ? this.video.duration : 0
+    if (this.video.seekable.length) {
+      seekableStart = this.video.seekable.start(0)
+      seekableEnd = this.video.seekable.end(this.video.seekable.length - 1)
+    }
+    return { ready: this.ready, playing: !this.video.paused, currentTime: current, duration: Number.isFinite(this.video.duration) ? this.video.duration : 0, bufferedStart, bufferedEnd, bufferedAhead: Math.max(0, bufferedEnd - current), stalled: this.video.readyState < 3 && !this.video.paused, live: this.live, seekableStart, seekableEnd }
   }
   getTracks(): TrackInfo[] { return this.tracks }
   async requestPictureInPicture(): Promise<void> {

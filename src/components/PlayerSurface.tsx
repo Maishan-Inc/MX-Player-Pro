@@ -1145,7 +1145,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
                   <button className="control-button" title={fullscreen ? '退出全屏' : '全屏'} aria-label={fullscreen ? '退出全屏' : '全屏'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button>
                 </div>
               </div>
-              {backendKind === 'mkv' && <ProgressPreview currentTime={currentTime} duration={duration} bufferedEnd={stats.bufferedEnd} source={source} onSeek={seek} />}
+              {(() => { const snapshot = hlsBackendRef.current?.getSnapshot(); return <ProgressPreview currentTime={currentTime} duration={duration} bufferedEnd={stats.bufferedEnd} seekableStart={snapshot?.seekableStart} seekableEnd={snapshot?.seekableEnd} live={snapshot?.live} source={source} onSeek={seek} /> })()}
             </div>
             {showSettings && <SettingsPanel rate={rate} setRate={(next) => { setRate(next); if (backendKind !== 'mkv') hlsBackendRef.current?.setPlaybackRate(next); else engineRef.current?.setPlaybackRate(next) }} audioTracks={audioTracks} subtitleTracks={subtitleTracks} audioTrackId={audioTrackId} audioAuto={audioAuto} subtitleTrackId={subtitleTrackId} selectTrack={selectTrack} qualities={backendKind === 'hls' && hlsQualities.length ? hlsQualities : qualities} selectedQuality={selectedQuality} onQualityChange={(id) => { if (backendKind === 'hls') hlsBackendRef.current?.selectQuality(id); onQualityChange?.(id) }} />}
             {contextMenu.open && <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} onStats={openStats} onAbout={openAbout} />}

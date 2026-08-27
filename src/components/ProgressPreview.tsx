@@ -5,6 +5,9 @@ interface ProgressPreviewProps {
   currentTime: number
   duration: number
   bufferedEnd: number
+  seekableStart?: number
+  seekableEnd?: number
+  live?: boolean
   source?: SourceDescriptor
   onSeek: (time: number) => void
 }
@@ -14,7 +17,7 @@ interface ProgressPreviewProps {
  * Browsers that cannot preview the source (for example native MKV playback)
  * keep the time card and never interrupt the primary decoder.
  */
-export default function ProgressPreview({ currentTime, duration, bufferedEnd, source, onSeek }: ProgressPreviewProps) {
+export default function ProgressPreview({ currentTime, duration, bufferedEnd, seekableStart = 0, seekableEnd, live = false, source, onSeek }: ProgressPreviewProps) {
   const previewVideoRef = useRef<HTMLVideoElement>(null)
   const seekTimerRef = useRef<number | null>(null)
   const [sourceUrl, setSourceUrl] = useState('')
@@ -50,9 +53,11 @@ export default function ProgressPreview({ currentTime, duration, bufferedEnd, so
     if (seekTimerRef.current !== null) window.clearTimeout(seekTimerRef.current)
   }, [])
 
-  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0.01
-  const playedPercent = clampPercent((Math.max(0, currentTime) / safeDuration) * 100)
-  const bufferedPercent = clampPercent((Math.max(0, bufferedEnd) / safeDuration) * 100)
+  const rangeStart = live ? seekableStart : 0
+  const rangeEnd = live ? (seekableEnd ?? duration) : duration
+  const safeDuration = Number.isFinite(rangeEnd) && rangeEnd > rangeStart ? rangeEnd - rangeStart : 0.01
+  const playedPercent = clampPercent(((Math.max(rangeStart, currentTime) - rangeStart) / safeDuration) * 100)
+  const bufferedPercent = clampPercent(((Math.max(rangeStart, bufferedEnd) - rangeStart) / safeDuration) * 100)
 
   function schedulePreviewSeek(nextTime: number) {
     if (seekTimerRef.current !== null) window.clearTimeout(seekTimerRef.current)
@@ -60,7 +65,7 @@ export default function ProgressPreview({ currentTime, duration, bufferedEnd, so
       seekTimerRef.current = null
       const video = previewVideoRef.current
       if (!video || previewFailed || video.readyState < 1) return
-      const target = Math.min(Math.max(0, nextTime), Math.max(0, safeDuration - 0.05))
+      const target = Math.min(Math.max(rangeStart, nextTime), Math.max(rangeStart, rangeEnd - 0.05))
       try {
         video.currentTime = target
         video.pause()
@@ -76,7 +81,7 @@ export default function ProgressPreview({ currentTime, duration, bufferedEnd, so
     if (rect.width <= 0) return
     const offset = Math.min(rect.width, Math.max(0, event.clientX - rect.left))
     const halfPreview = Math.min(80, rect.width / 2)
-    const nextTime = (offset / rect.width) * safeDuration
+    const nextTime = rangeStart + (offset / rect.width) * safeDuration
     setPreviewLeft(Math.min(rect.width - halfPreview, Math.max(halfPreview, offset)))
     setPreviewTime(nextTime)
     setPreviewVisible(true)
@@ -123,10 +128,10 @@ export default function ProgressPreview({ currentTime, duration, bufferedEnd, so
       </div>
       <input
         type="range"
-        min="0"
-        max={safeDuration}
+        min={rangeStart}
+        max={Math.max(rangeStart + 0.01, rangeEnd)}
         step="0.05"
-        value={Math.min(Math.max(0, currentTime), safeDuration)}
+        value={Math.min(Math.max(rangeStart, currentTime), Math.max(rangeStart + 0.01, rangeEnd))}
         aria-label="播放进度"
         aria-valuetext={`${formatTime(currentTime)}，已缓冲至 ${formatTime(bufferedEnd)}`}
         onChange={seek}

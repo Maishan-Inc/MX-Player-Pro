@@ -12,6 +12,9 @@ export interface BackendSnapshot {
   bufferedAhead: number
   stalled: boolean
   live: boolean
+  /** Seekable media-time window; present for native/HLS live streams. */
+  seekableStart?: number
+  seekableEnd?: number
 }
 
 export interface PlaybackBackend {
