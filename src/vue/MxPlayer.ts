@@ -13,7 +13,7 @@ export const MxPlayer = defineComponent({
   props: {
     url: { type: String, default: undefined },
     file: { type: Object as PropType<File>, default: undefined },
-    format: { type: String as PropType<'auto' | 'mkv' | 'hls'>, default: 'auto' },
+    format: { type: String as PropType<'auto' | 'mkv' | 'hls' | 'native'>, default: 'auto' },
     hls: { type: Object as PropType<{ lowLatencyMode?: boolean; withCredentials?: boolean; maxBufferLength?: number }>, default: undefined },
     autoplay: { type: Boolean, default: false },
     muted: { type: Boolean, default: false },

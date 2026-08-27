@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, ArrowUpRight, ChevronDown, Cloud, FileUp, Moon, Sun } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, ChevronDown, Cloud, Cpu, FileUp, Globe2, Moon, ScanLine, Sparkles, Sun } from 'lucide-react'
 import type { SourceDescriptor } from './types'
 import PlayerSurface from './components/PlayerSurface'
 import IntegrationSection from './components/IntegrationSection'
@@ -11,6 +11,7 @@ const GITHUB_URL = 'https://github.com/Maishan-Inc/MX-Player-Pro'
 export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('mx-player-pro:theme') as 'dark' | 'light') || 'dark')
   const [url, setUrl] = useState(() => localStorage.getItem(RECENT_URL_KEY) || '')
+  const [urlFormat, setUrlFormat] = useState<'auto' | 'mkv' | 'hls' | 'native'>('auto')
   const [source, setSource] = useState<SourceDescriptor | null>(null)
   const [sourceName, setSourceName] = useState('')
   const [inputError, setInputError] = useState('')
@@ -35,7 +36,7 @@ export default function App() {
   function startUrlPlayback() {
     const normalizedUrl = url.trim()
     if (!normalizedUrl) {
-      setInputError('请输入云端 MKV 或 HLS (.m3u8) URL。')
+      setInputError('请输入云端 MKV、HLS (.m3u8) 或 MP4/WebM URL。')
       return
     }
     if (!/^https?:\/\//i.test(normalizedUrl)) {
@@ -43,7 +44,8 @@ export default function App() {
       return
     }
     localStorage.setItem(RECENT_URL_KEY, normalizedUrl)
-    beginPlayback({ kind: 'url', url: normalizedUrl }, normalizedUrl)
+    const format = urlFormat === 'auto' && /(?:m3u8|mpegurl)/i.test(normalizedUrl) ? 'hls' : urlFormat
+    beginPlayback({ kind: 'url', url: normalizedUrl, format }, normalizedUrl)
   }
 
   function beginPlayback(nextSource: SourceDescriptor, label: string) {
@@ -96,6 +98,12 @@ export default function App() {
               inputMode="url"
               aria-label="媒体 URL"
             />
+            <select className="url-format-select" value={urlFormat} onChange={(event) => setUrlFormat(event.target.value as 'auto' | 'mkv' | 'hls' | 'native')} aria-label="媒体格式">
+              <option value="auto">自动</option>
+              <option value="hls">HLS</option>
+              <option value="native">MP4/WebM</option>
+              <option value="mkv">MKV</option>
+            </select>
             <button type="submit" disabled={!canStart} className="primary-button">
               播放 <ArrowRight size={17} aria-hidden="true" />
             </button>
@@ -119,6 +127,8 @@ export default function App() {
         <HowItWorks />
 
         <FAQ />
+
+        <MXMaxPromo />
       </main>
       <footer className="site-footer">Powered by MXPlayer Pro v{__APP_VERSION__} © 2026 Maishan Inc. · MIT License</footer>
     </div>
@@ -269,6 +279,27 @@ function FAQ() {
           )
         })}
       </div>
+    </section>
+  )
+}
+
+function MXMaxPromo() {
+  return (
+    <section className="mxmax-promo" aria-labelledby="mxmax-heading">
+      <div className="mxmax-promo-grid" aria-hidden="true" />
+      <div className="mxmax-promo-scan" aria-hidden="true" />
+      <div className="mxmax-promo-content">
+        <div className="mxmax-promo-kicker"><Sparkles size={15} aria-hidden="true" /> 正在开发</div>
+        <h2 id="mxmax-heading">MX Player Max</h2>
+        <p className="mxmax-promo-lead">我们正在开发 MX Player Max</p>
+        <p className="mxmax-promo-copy">这是一个可以在浏览器播放任意视频文件，并支持 AI 超分辨率与 AI 插帧的 Web3 播放器。</p>
+        <div className="mxmax-promo-capabilities" aria-label="MX Player Max 能力">
+          <span><Globe2 size={15} aria-hidden="true" /> 任意视频文件</span>
+          <span><Cpu size={15} aria-hidden="true" /> AI 超分辨率</span>
+          <span><ScanLine size={15} aria-hidden="true" /> AI 插帧</span>
+        </div>
+      </div>
+      <div className="mxmax-promo-mark" aria-hidden="true">MAX<span>·</span>LAB</div>
     </section>
   )
 }

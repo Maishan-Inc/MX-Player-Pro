@@ -9,6 +9,9 @@ describe('media format detection', () => {
   it('detects m3u8 suffix without query or hash', () => {
     expect(detectMediaFormat({ kind: 'url', url: 'https://x/master.M3U8?token=1#v' })).toBe('hls')
     expect(detectMediaFormat({ kind: 'url', url: 'https://x/video.mkv?token=1' })).toBe('mkv')
+    expect(detectMediaFormat({ kind: 'url', url: 'https://x/stream?format=m3u8&token=1' })).toBe('hls')
+    expect(detectMediaFormat({ kind: 'url', url: 'https://x/video.mp4?token=1' })).toBe('native')
+    expect(detectMediaFormat({ kind: 'url', url: 'https://x/video.webm' })).toBe('native')
   })
   it('keeps files on the MKV backend', () => {
     const file = new File([], 'playlist.m3u8', { type: 'application/vnd.apple.mpegurl' })

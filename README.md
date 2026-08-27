@@ -109,4 +109,4 @@ const player = new MXPlayer({
 })
 ```
 
-`format` 支持 `auto`、`mkv`、`hls`，省略时会根据 `.m3u8` 后缀自动识别。HLS 的 playlist、分片、密钥和 WebVTT 字幕都由浏览器直连源站，必须统一配置 CORS；本版本不包含 DRM、FFmpeg/WASM 转码或本地 m3u8 文件解析。
+`format` 支持 `auto`、`mkv`、`hls`、`native`，省略时会根据 `.m3u8`、`.mp4`、`.webm` 后缀自动识别。普通 MP4/WebM 走浏览器原生 `<video>`；HLS 的 playlist、分片、密钥和 WebVTT 字幕都由浏览器直连源站，必须统一配置 CORS。本版本不包含 DRM、FFmpeg/WASM 转码或本地 m3u8 文件解析。

@@ -17,9 +17,9 @@ export interface MXPlayerDanmakuOptions {
 export interface MXPlayerOptions {
   /** 播放器容器选择器或 DOM 元素。 */
   playerElm: string | HTMLElement
-  /** 云端 MKV 或 HLS (.m3u8) 地址，需支持 CORS。 */
+  /** 云端 MKV、HLS (.m3u8) 或普通 MP4/WebM 地址，需支持 CORS。 */
   url?: string
-  /** Source format; auto detects .m3u8 URLs and otherwise keeps MKV behavior. */
+  /** Source format; auto detects common HLS/MP4/WebM extensions. */
   format?: MediaFormat
   hls?: {
     lowLatencyMode?: boolean

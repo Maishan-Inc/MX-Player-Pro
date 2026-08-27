@@ -8,6 +8,8 @@ const MESSAGES: Array<[RegExp, string | ((detail: string) => string)]> = [
   [/^HLS_MEDIA_ERROR(?:$|:)/i, 'HLS 媒体解码失败，当前浏览器可能不支持该编码或分片已损坏。'],
   [/^HLS_CORS_BLOCKED(?:$|:)/i, CORS_GUIDANCE],
   [/^HLS_FATAL_ERROR(?:$|:)/i, 'HLS 播放发生不可恢复错误，请检查媒体源后重试。'],
+  [/^NATIVE_UNSUPPORTED(?:$|:)/i, '当前浏览器不支持该原生媒体格式。请改用 H.264/AAC MP4 或 VP8/VP9 WebM。'],
+  [/^NATIVE_MEDIA_ERROR(?:$|:)/i, '普通媒体加载或解码失败，请检查文件编码、MIME 类型和 CORS 配置。'],
   [/^CORS_BLOCKED(?:$|:)/i, CORS_GUIDANCE],
   [/^LOCAL_NETWORK_ACCESS_BLOCKED(?:$|:)/i, LOCAL_NETWORK_GUIDANCE],
   [/^RANGE_HTTP_401(?:$|:)/i, '媒体地址返回 401 Unauthorized，签名或访问凭证无效。请重新生成直链。'],

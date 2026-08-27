@@ -1,4 +1,4 @@
-export type MediaFormat = 'auto' | 'mkv' | 'hls'
+export type MediaFormat = 'auto' | 'mkv' | 'hls' | 'native'
 
 export type SourceDescriptor =
   | { kind: 'file'; file: File; format?: 'mkv' }
