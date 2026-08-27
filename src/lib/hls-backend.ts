@@ -68,6 +68,7 @@ export class HlsBackend implements PlaybackBackend {
       this.ready = true
       this.emit({ type: 'ready' })
     })
+    hls.on(Hls.Events.FRAG_LOADED, () => { this.recoveryCount = 0 })
     hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => { this.live = Boolean(data.details?.live) })
     hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => this.emit({ type: 'qualitychange', qualityId: String(data.level) }))
     hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_event, data) => {
@@ -84,10 +85,12 @@ export class HlsBackend implements PlaybackBackend {
       if (!data.fatal) return
       const detail = String(data.details || '')
       if (/cors/i.test(detail)) { this.emit({ type: 'error', code: 'HLS_CORS_BLOCKED', detail }); return }
-      if (this.recoveryCount >= 3) { this.emit({ type: 'error', code: 'HLS_FATAL_ERROR', detail }); return }
+      if (this.recoveryCount >= 3) { this.emit({ type: 'error', code: 'HLS_FATAL_ERROR', detail: `恢复次数已达上限（${detail || '未知错误'}）` }); return }
       this.recoveryCount += 1
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(); this.emit({ type: 'error', code: 'HLS_NETWORK_ERROR', detail }); return }
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); this.emit({ type: 'error', code: 'HLS_MEDIA_ERROR', detail }); return }
+      // A fatal hls.js error can still be recovered. Do not raise the user-facing
+      // error overlay until all three recovery attempts have failed.
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(); return }
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); return }
       this.emit({ type: 'error', code: /manifest/i.test(detail) ? 'HLS_MANIFEST_ERROR' : 'HLS_FATAL_ERROR', detail })
     })
     hls.attachMedia(this.video)
@@ -132,7 +135,15 @@ export class HlsBackend implements PlaybackBackend {
   private bindMediaEvents() {
     const map: Array<[keyof HTMLMediaElementEventMap, HlsBackendEvent]> = [['loadedmetadata', { type: 'ready' }], ['playing', { type: 'play' }], ['pause', { type: 'pause' }], ['timeupdate', { type: 'timeupdate' }], ['waiting', { type: 'stalled', stalled: true }], ['stalled', { type: 'stalled', stalled: true }], ['canplay', { type: 'stalled', stalled: false }], ['ended', { type: 'ended' }]]
     map.forEach(([name, event]) => { const handler = () => { if (name === 'loadedmetadata') { this.ready = true; this.refreshNativeTracks() }; this.emit(event) }; this.video.addEventListener(name, handler); this.listeners.push(() => this.video.removeEventListener(name, handler)) })
-    const onError = () => this.emit({ type: 'error', code: 'HLS_MEDIA_ERROR', detail: this.video.error?.message })
+    const onError = () => {
+      // With hls.js attached, the library's ERROR event classifies and recovers
+      // media failures. The element-level error is a duplicate and would surface
+      // a false overlay before recovery can complete.
+      if (this.hls) return
+      const mediaError = this.video.error
+      const detail = mediaError ? `code=${mediaError.code}${mediaError.message ? `, ${mediaError.message}` : ''}` : 'video element error'
+      this.emit({ type: 'error', code: 'HLS_MEDIA_ERROR', detail })
+    }
     this.video.addEventListener('error', onError); this.listeners.push(() => this.video.removeEventListener('error', onError))
   }
   private destroyRuntime() { this.listeners.splice(0).forEach((remove) => remove()); this.hls?.destroy(); this.hls = null }
