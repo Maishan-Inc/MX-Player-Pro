@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "hls.js": "^1.7.1",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest"

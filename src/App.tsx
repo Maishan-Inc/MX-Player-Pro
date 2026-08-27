@@ -35,7 +35,7 @@ export default function App() {
   function startUrlPlayback() {
     const normalizedUrl = url.trim()
     if (!normalizedUrl) {
-      setInputError('请输入云端 MKV 下载 URL。')
+      setInputError('请输入云端 MKV 或 HLS (.m3u8) URL。')
       return
     }
     if (!/^https?:\/\//i.test(normalizedUrl)) {
@@ -92,9 +92,9 @@ export default function App() {
             <input
               value={url}
               onChange={(event) => { setUrl(event.target.value); setInputError('') }}
-              placeholder="https://media.example.com/video.mkv"
+              placeholder="https://media.example.com/video.mkv 或 master.m3u8"
               inputMode="url"
-              aria-label="MKV 下载 URL"
+              aria-label="媒体 URL"
             />
             <button type="submit" disabled={!canStart} className="primary-button">
               播放 <ArrowRight size={17} aria-hidden="true" />

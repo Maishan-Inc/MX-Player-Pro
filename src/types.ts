@@ -1,6 +1,8 @@
+export type MediaFormat = 'auto' | 'mkv' | 'hls'
+
 export type SourceDescriptor =
-  | { kind: 'file'; file: File }
-  | { kind: 'url'; url: string }
+  | { kind: 'file'; file: File; format?: 'mkv' }
+  | { kind: 'url'; url: string; format?: MediaFormat }
 
 export type TrackKind = 'video' | 'audio' | 'subtitle'
 
@@ -19,6 +21,9 @@ export interface TrackInfo {
   channels?: number
   /** DefaultDuration is stored in nanoseconds and is not scaled by TimecodeScale. */
   defaultDurationNs?: number
+  /** HLS rendition/track metadata when supplied by the playlist. */
+  groupId?: string
+  role?: string
 }
 
 export interface MKVPacket {

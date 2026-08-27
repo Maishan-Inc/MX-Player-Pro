@@ -2,6 +2,12 @@ const CORS_GUIDANCE = '媒体服务器拒绝网页跨域读取。请为媒体响
 const LOCAL_NETWORK_GUIDANCE = '浏览器没有允许此网页访问局域网媒体。请在地址栏的站点权限中允许“本地网络访问”后重新读取；旧版浏览器若仍阻止 HTTPS 页面访问 HTTP 媒体，请给媒体服务启用 HTTPS，或从局域网 HTTP 页面打开播放器。媒体流量始终由浏览器直连源地址，不会经过播放器部署服务器。'
 
 const MESSAGES: Array<[RegExp, string | ((detail: string) => string)]> = [
+  [/^HLS_UNSUPPORTED(?:$|:)/i, '当前浏览器不支持 HLS 播放。请使用最新版 Safari，或支持 MediaSource 的 Chrome、Edge、Firefox。'],
+  [/^HLS_MANIFEST_ERROR(?:$|:)/i, 'HLS 播放列表无法读取或格式无效，请检查 m3u8 地址和服务器响应。'],
+  [/^HLS_NETWORK_ERROR(?:$|:)/i, 'HLS 网络请求失败，请检查 playlist、分片、密钥和字幕资源的 CORS 与签名有效期。'],
+  [/^HLS_MEDIA_ERROR(?:$|:)/i, 'HLS 媒体解码失败，当前浏览器可能不支持该编码或分片已损坏。'],
+  [/^HLS_CORS_BLOCKED(?:$|:)/i, CORS_GUIDANCE],
+  [/^HLS_FATAL_ERROR(?:$|:)/i, 'HLS 播放发生不可恢复错误，请检查媒体源后重试。'],
   [/^CORS_BLOCKED(?:$|:)/i, CORS_GUIDANCE],
   [/^LOCAL_NETWORK_ACCESS_BLOCKED(?:$|:)/i, LOCAL_NETWORK_GUIDANCE],
   [/^RANGE_HTTP_401(?:$|:)/i, '媒体地址返回 401 Unauthorized，签名或访问凭证无效。请重新生成直链。'],

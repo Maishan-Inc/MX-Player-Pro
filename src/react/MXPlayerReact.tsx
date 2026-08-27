@@ -1,12 +1,14 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import PlayerSurface, { type PlayerSurfaceHandle } from '../components/PlayerSurface'
 import type { MXPlayerDanmakuOptions, MXPlayerQuality, MXPlayerState } from '../player-api'
-import type { SourceDescriptor, TrackInfo } from '../types'
+import type { MediaFormat, SourceDescriptor, TrackInfo } from '../types'
 import '../player.css'
 
 export interface MXPlayerProps {
   url?: string
   file?: File
+  format?: MediaFormat
+  hls?: { lowLatencyMode?: boolean; withCredentials?: boolean; maxBufferLength?: number }
   label?: string
   autoplay?: boolean
   muted?: boolean
@@ -67,10 +69,10 @@ export const MXPlayerReact = forwardRef<MXPlayerHandle, MXPlayerProps>(function 
     if (dropped && dropped.baseUrl === props.url && dropped.baseFile === props.file) {
       return { kind: 'file', file: dropped.file }
     }
-    if (props.url) return { kind: 'url', url: props.url }
+    if (props.url) return { kind: 'url', url: props.url, format: props.format }
     if (props.file) return { kind: 'file', file: props.file }
     return undefined
-  }, [dropped, props.file, props.url])
+  }, [dropped, props.file, props.url, props.format])
 
   useEffect(() => {
     if (props.volume !== undefined) surfaceRef.current?.setVolume(props.volume)
@@ -128,6 +130,8 @@ export const MXPlayerReact = forwardRef<MXPlayerHandle, MXPlayerProps>(function 
         autoplay={props.autoplay}
         initialVolume={props.volume}
         initialMuted={props.muted}
+        format={props.format}
+        hls={props.hls}
         workerUrl={props.workerUrl}
         onNext={props.onNext}
         qualities={props.qualities}

@@ -12,10 +12,14 @@ export type {
 
 export type {
   SourceDescriptor,
+  MediaFormat,
   TrackKind,
   TrackInfo,
   ProbeInfo,
   PlaybackMetadata,
 } from './types'
+
+export { detectMediaFormat, normalizeMediaFormat } from './lib/media-format'
+export type { PlaybackBackend, BackendSnapshot, BackendKind } from './lib/playback-backend'
 
 export const VERSION = __APP_VERSION__

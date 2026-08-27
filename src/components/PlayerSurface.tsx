@@ -13,6 +13,8 @@ import {
 import { WebCodecsEngine, type EngineStats } from '../lib/webcodecs'
 import { explainPlaybackError } from '../lib/playback-error'
 import { createDirectFetchHost, primeLocalNetworkAccess } from '../lib/direct-media'
+import { normalizeMediaFormat } from '../lib/media-format'
+import { HlsBackend, type HlsBackendEvent } from '../lib/hls-backend'
 import type { MXPlayerDanmakuOptions, MXPlayerQuality, MXPlayerState } from '../player-api'
 import type { DemuxEvent, DemuxRequest, MKVPacket, ProbeInfo, SourceDescriptor, TrackInfo } from '../types'
 import { createDemuxWorker } from '../worker/create-demux-worker'
@@ -27,6 +29,8 @@ export interface PlayerSurfaceProps {
   initialVolume?: number
   initialMuted?: boolean
   workerUrl?: string | URL
+  format?: 'auto' | 'mkv' | 'hls'
+  hls?: { lowLatencyMode?: boolean; withCredentials?: boolean; maxBufferLength?: number }
   onReady?: (payload: { tracks: TrackInfo[]; duration: number }) => void
   onPlay?: () => void
   onPause?: () => void
@@ -78,12 +82,14 @@ const EMPTY_STATS: EngineStats = {
 const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(function PlayerSurface(props, ref) {
   const {
     source, label = 'MX Player Pro', onExit, embedded = false, autoplay = false,
-    initialVolume = 0.85, initialMuted = false, workerUrl,
+    initialVolume = 0.85, initialMuted = false, workerUrl, format = 'auto', hls: hlsOptions,
     onNext, qualities = [], selectedQuality = 'auto', onQualityChange, danmaku,
     className, style,
   } = props
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const hlsVideoRef = useRef<HTMLVideoElement>(null)
+  const hlsBackendRef = useRef<HlsBackend | null>(null)
   const workerRef = useRef<Worker | null>(null)
   const engineRef = useRef<WebCodecsEngine | null>(null)
   const epochRef = useRef(0)
@@ -123,6 +129,9 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   const [aboutOpen, setAboutOpen] = useState(false)
   const [engineStatus, setEngineStatus] = useState('等待 WebCodecs…')
   const [stats, setStats] = useState<EngineStats>(EMPTY_STATS)
+  const [backendKind, setBackendKind] = useState<'mkv' | 'hls'>('mkv')
+  const [hlsLive, setHlsLive] = useState(false)
+  const [hlsQualities, setHlsQualities] = useState<MXPlayerQuality[]>([])
   const [danmakuVisible, setDanmakuVisible] = useState(danmaku?.visible ?? true)
   const [reloadToken, setReloadToken] = useState(0)
   const playingRef = useRef(false)
@@ -188,33 +197,35 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
     setVolume: setVolumeAndUnmute,
     setMuted: (value) => {
       setMuted(value)
-      engineRef.current?.setVolume(value ? 0 : volume)
+      if (backendKind === 'hls') hlsBackendRef.current?.setMuted(value)
+      else engineRef.current?.setVolume(value ? 0 : volume)
     },
     setPlaybackRate: (value) => {
       const next = Math.max(0.25, Math.min(4, value))
       setRate(next)
-      engineRef.current?.setPlaybackRate(next)
+      if (backendKind === 'hls') hlsBackendRef.current?.setPlaybackRate(next)
+      else engineRef.current?.setPlaybackRate(next)
     },
     requestFullscreen: toggleFullscreen,
     requestPictureInPicture,
     getState: () => ({
       ready: readyRef.current,
       playing: playingRef.current,
-      currentTime: engineRef.current?.currentTime ?? currentTime,
+      currentTime: hlsBackendRef.current?.getSnapshot().currentTime ?? engineRef.current?.currentTime ?? currentTime,
       duration,
       volume,
       muted,
       playbackRate: rate,
-      bufferedAhead: stats.bufferedAhead,
-      stalled: stats.stalled,
+      bufferedAhead: hlsBackendRef.current?.getSnapshot().bufferedAhead ?? stats.bufferedAhead,
+      stalled: hlsBackendRef.current?.getSnapshot().stalled ?? stats.stalled,
       error: error || null,
     }),
-    getTracks: () => metadata?.tracks ?? [],
+    getTracks: () => hlsBackendRef.current?.getTracks() ?? metadata?.tracks ?? [],
   }))
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || !source) {
+    if (!source) {
       setMetadata(null)
       setProbe(null)
       setProgress('等待媒体地址')
@@ -224,6 +235,54 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       setStats(EMPTY_STATS)
       return
     }
+
+    const selectedFormat = normalizeMediaFormat(source, source.kind === 'url' ? format : 'mkv')
+    if (selectedFormat === 'hls' && source.kind === 'url' && hlsVideoRef.current) {
+      setBackendKind('hls')
+      setHlsLive(false)
+      setHlsQualities([])
+      setMetadata(null)
+      setProbe(null)
+      setProgress('正在加载 HLS…')
+      setError('')
+      setPlaying(false)
+      setCurrentTime(0)
+      setStats(EMPTY_STATS)
+      const backend = new HlsBackend(hlsVideoRef.current, hlsOptions, (event: HlsBackendEvent) => {
+        if (event.type === 'ready') {
+          const snapshot = backend.getSnapshot()
+          setHlsLive(snapshot.live)
+          const tracks = backend.getTracks()
+          setHlsQualities(backend.getQualities())
+          setMetadata({ tracks, duration: snapshot.duration })
+          readyRef.current = true
+          setProgress('HLS 已就绪')
+          propsRef.current.onReady?.({ tracks, duration: snapshot.duration })
+          if (autoplay) window.setTimeout(() => { if (!playingRef.current) playMedia() }, 0)
+        } else if (event.type === 'play') { setPlaying(true); playingRef.current = true; propsRef.current.onPlay?.() }
+        else if (event.type === 'pause') { setPlaying(false); playingRef.current = false; propsRef.current.onPause?.() }
+        else if (event.type === 'timeupdate') { const s = backend.getSnapshot(); setCurrentTime(s.currentTime); setStats({ ...EMPTY_STATS, currentTime: s.currentTime, bufferedStart: s.bufferedStart, bufferedEnd: s.bufferedEnd, bufferedAhead: s.bufferedAhead, stalled: s.stalled }); propsRef.current.onTimeUpdate?.({ currentTime: s.currentTime, duration: s.duration }) }
+        else if (event.type === 'stalled') { setStats((current) => ({ ...current, stalled: event.stalled })) }
+        else if (event.type === 'tracksupdate') { const snapshot = backend.getSnapshot(); setMetadata((current) => ({ tracks: backend.getTracks(), duration: current?.duration ?? snapshot.duration })) }
+        else if (event.type === 'ended') { if (!backend.getSnapshot().live) propsRef.current.onEnded?.() }
+        else if (event.type === 'qualitychange') propsRef.current.onQualityChange?.(event.qualityId)
+        else if (event.type === 'error') { const message = explainPlaybackError(`${event.code}${event.detail ? `:${event.detail}` : ''}`); setError(message); setProgress('HLS 播放失败'); propsRef.current.onError?.({ message }) }
+      })
+      hlsBackendRef.current = backend
+      readyRef.current = false
+      void backend.load(source).catch((loadError) => { const message = explainPlaybackError(loadError instanceof Error ? loadError.message : String(loadError)); setError(message); setProgress('HLS 加载失败'); propsRef.current.onError?.({ message }) })
+      const timer = window.setInterval(() => {
+        const snapshot = backend.getSnapshot()
+        setHlsLive(snapshot.live)
+        setCurrentTime(snapshot.currentTime)
+        setStats({ ...EMPTY_STATS, currentTime: snapshot.currentTime, bufferedStart: snapshot.bufferedStart, bufferedEnd: snapshot.bufferedEnd, bufferedAhead: snapshot.bufferedAhead, stalled: snapshot.stalled })
+        if (metadata && metadata.duration !== snapshot.duration) setMetadata((current) => current ? { ...current, duration: snapshot.duration } : current)
+        propsRef.current.onTimeUpdate?.({ currentTime: snapshot.currentTime, duration: snapshot.duration })
+      }, 250)
+      return () => { window.clearInterval(timer); backend.destroy(); hlsBackendRef.current = null; readyRef.current = false }
+    }
+    setBackendKind('mkv')
+    if (!canvas) return
 
     setMetadata(null)
     setProbe(null)
@@ -352,7 +411,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       workerRef.current = null
       engineRef.current = null
     }
-  }, [source, workerUrl, reloadToken])
+  }, [source, workerUrl, reloadToken, format, hlsOptions?.lowLatencyMode, hlsOptions?.withCredentials, hlsOptions?.maxBufferLength])
 
   useEffect(() => {
     function syncFullscreen() { setFullscreen(document.fullscreenElement === frameRef.current) }
@@ -544,23 +603,25 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   }
 
   function playMedia() {
-    if (playbackLocked || !readyRef.current || !engineRef.current || playingRef.current) {
+    if (playbackLocked || !readyRef.current || (backendKind === 'mkv' && !engineRef.current) || playingRef.current) {
       showControls(playbackLocked)
       return
     }
     setPlaying(true)
     playingRef.current = true
-    engineRef.current.play()
+    if (backendKind === 'hls') void hlsBackendRef.current?.play().catch((error) => { const message = explainPlaybackError(String(error)); setError(message); propsRef.current.onError?.({ message }) })
+    else engineRef.current?.play()
     pump()
     propsRef.current.onPlay?.()
     showControls()
   }
 
   function pauseMedia() {
-    if (!engineRef.current || !playingRef.current) return
+    if ((backendKind === 'mkv' && !engineRef.current) || (backendKind === 'hls' && !hlsBackendRef.current) || !playingRef.current) return
     setPlaying(false)
     playingRef.current = false
-    engineRef.current.pause()
+    if (backendKind === 'hls') hlsBackendRef.current?.pause()
+    else engineRef.current?.pause()
     propsRef.current.onPause?.()
     showControls()
   }
@@ -575,13 +636,16 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   }
 
   function seek(value: number) {
-    const next = Math.max(0, Math.min(value, duration || value))
+    const liveSnapshot = hlsBackendRef.current?.getSnapshot()
+    const max = liveSnapshot?.live ? Number.POSITIVE_INFINITY : (duration || value)
+    const next = Math.max(0, Math.min(value, max))
     setCurrentTime(next)
     // Cues are keyed by media time, so they survive a seek; only the visible line
     // has to be recomputed for the new position.
     epochRef.current += 1
     eofRef.current = false
     inFlightRef.current = false
+    if (backendKind === 'hls') { hlsBackendRef.current?.seek(next); showControls(); return }
     engineRef.current?.seekTo(next)
     syncCues(next)
     workerRef.current?.postMessage({ type: 'seek', time: next, epoch: epochRef.current } satisfies DemuxRequest)
@@ -590,6 +654,14 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   }
 
   function selectTrack(kind: 'audio' | 'subtitle', id: number | null, options?: { automatic?: boolean }) {
+    if (backendKind === 'hls') {
+      if (kind === 'audio') hlsBackendRef.current?.selectAudio(id ?? 1000)
+      else hlsBackendRef.current?.selectSubtitle(id)
+      if (kind === 'subtitle') { setSubtitleTrackId(id); setSubtitleEnabled(id !== null); subtitleTrackRef.current = id; subtitleEnabledRef.current = id !== null }
+      else { setAudioTrackId(id ?? undefined); setAudioAuto(id === null) }
+      closeSubtitleMenu(showSubtitleEditor ? false : true)
+      return
+    }
     if (kind === 'subtitle') {
       // Every subtitle track is demuxed continuously, so this is display-only: no
       // epoch bump, no worker round trip, no rewind of the demux cursor.
@@ -643,6 +715,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   }
 
   async function requestPictureInPicture() {
+    if (backendKind === 'hls') { await hlsBackendRef.current?.requestPictureInPicture(); return }
     const canvas = canvasRef.current as (HTMLCanvasElement & { captureStream?: (frameRate?: number) => MediaStream }) | null
     const pictureDocument = document as Document & { pictureInPictureElement?: Element | null; exitPictureInPicture?: () => Promise<void> }
     if (pictureDocument.pictureInPictureElement) {
@@ -915,17 +988,20 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
   function setVolumeAndUnmute(next: number) {
     setVolume(next)
     setMuted(next <= 0)
-    engineRef.current?.setVolume(next)
+    if (backendKind === 'hls') hlsBackendRef.current?.setVolume(next)
+    else engineRef.current?.setVolume(next)
   }
 
   function toggleMuted() {
     const next = !muted
     setMuted(next)
-    engineRef.current?.setVolume(next ? 0 : volume)
+    if (backendKind === 'hls') hlsBackendRef.current?.setMuted(next)
+    else engineRef.current?.setVolume(next ? 0 : volume)
   }
 
   const statsRows: Array<[string, string]> = [
     ['源', source?.kind === 'file' ? '本地文件' : source ? safeHostname(label) : '未加载'],
+    ['后端', backendKind === 'hls' ? `HLS${hlsLive ? ' · 直播' : ' · VOD'}` : 'MKV · WebCodecs'],
     ['状态', stats.stalled ? '缓冲中' : progress],
     ['HTTP', String(probe?.status || '--')],
     ['CORS', probe?.cors === 'ok' ? '允许' : probe?.cors === 'blocked' ? '阻断' : '未知'],
@@ -965,7 +1041,8 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
             onTouchEnd={handleTouchEnd}
             aria-label="MX Player 视频播放器"
           >
-            <canvas ref={canvasRef} className="video-canvas" aria-label="视频画面" />
+            <canvas ref={canvasRef} className={`video-canvas ${backendKind === 'hls' ? 'is-hidden' : ''}`} aria-label="视频画面" />
+            <video ref={hlsVideoRef} className={`video-element ${backendKind === 'hls' ? '' : 'is-hidden'}`} playsInline preload="auto" aria-label="视频画面" />
             {!metadata && !error && <div className="player-loading" data-player-control><span className="spinner" /><strong>{progress}</strong></div>}
             {metadata && !error && stats.stalled && (
               <div className="player-buffering" data-player-control><span className="spinner" /><strong>缓冲中…</strong></div>
@@ -1026,7 +1103,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
                   {onNext && <button className="control-button" title="下一集" aria-label="下一集" onClick={onNext}><SkipForward size={20} /></button>}
                   <button className="control-button" title={muted ? '取消静音' : '静音'} aria-label={muted ? '取消静音' : '静音'} onClick={toggleMuted}>{muted ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>
                   <input className="volume-slider" type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} style={{ '--volume': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties} onChange={(event) => setVolumeAndUnmute(Number(event.target.value))} aria-label="音量" />
-                  <span className="time-readout">{formatTime(currentTime)} / {formatTime(duration)}</span>
+                  <span className="time-readout">{formatTime(currentTime)} / {hlsLive ? 'LIVE' : formatTime(duration)}</span>
                   {danmaku && <button className={`control-button ${danmakuVisible ? 'is-active' : ''}`} title={danmakuVisible ? '隐藏弹幕' : '显示弹幕'} aria-label={danmakuVisible ? '隐藏弹幕' : '显示弹幕'} aria-pressed={danmakuVisible} onClick={toggleDanmaku}><MessageCircle size={20} /></button>}
                   {danmaku?.onCompose && <button className="control-button" title="发送弹幕" aria-label="发送弹幕" onClick={danmaku.onCompose}><Send size={19} /></button>}
                 </div>
@@ -1038,9 +1115,9 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
                   <button className="control-button" title={fullscreen ? '退出全屏' : '全屏'} aria-label={fullscreen ? '退出全屏' : '全屏'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button>
                 </div>
               </div>
-              <ProgressPreview currentTime={currentTime} duration={duration} bufferedEnd={stats.bufferedEnd} source={source} onSeek={seek} />
+              {backendKind === 'mkv' && <ProgressPreview currentTime={currentTime} duration={duration} bufferedEnd={stats.bufferedEnd} source={source} onSeek={seek} />}
             </div>
-            {showSettings && <SettingsPanel rate={rate} setRate={(next) => { setRate(next); engineRef.current?.setPlaybackRate(next) }} audioTracks={audioTracks} subtitleTracks={subtitleTracks} audioTrackId={audioTrackId} audioAuto={audioAuto} subtitleTrackId={subtitleTrackId} selectTrack={selectTrack} qualities={qualities} selectedQuality={selectedQuality} onQualityChange={onQualityChange} />}
+            {showSettings && <SettingsPanel rate={rate} setRate={(next) => { setRate(next); if (backendKind === 'hls') hlsBackendRef.current?.setPlaybackRate(next); else engineRef.current?.setPlaybackRate(next) }} audioTracks={audioTracks} subtitleTracks={subtitleTracks} audioTrackId={audioTrackId} audioAuto={audioAuto} subtitleTrackId={subtitleTrackId} selectTrack={selectTrack} qualities={backendKind === 'hls' && hlsQualities.length ? hlsQualities : qualities} selectedQuality={selectedQuality} onQualityChange={(id) => { if (backendKind === 'hls') hlsBackendRef.current?.selectQuality(id); onQualityChange?.(id) }} />}
             {contextMenu.open && <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={closeContextMenu} onStats={openStats} onAbout={openAbout} />}
           </div>
           {!embedded && <div className="player-status-line">

@@ -40,7 +40,7 @@ export class MXPlayer {
     this.container = container
     this.options = { ...options }
     this.source = options.url
-      ? { kind: 'url', url: options.url }
+      ? { kind: 'url', url: options.url, format: options.format }
       : options.file
         ? { kind: 'file', file: options.file }
         : undefined
@@ -137,6 +137,8 @@ export class MXPlayer {
       autoplay: this.options.autoplay,
       initialVolume: this.options.volume,
       initialMuted: this.options.muted,
+      format: this.options.format,
+      hls: this.options.hls,
       workerUrl: this.options.workerUrl,
       onNext: this.options.onNext,
       qualities: this.options.qualities,

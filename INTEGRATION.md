@@ -328,3 +328,8 @@ Range: bytes=0-1048575
 ## 许可
 
 MIT License · © 2026 Maishan Inc.
+# HLS 接入
+
+将远程 `.m3u8` 地址作为 `url` 传入，并可使用 `format: 'hls'` 显式指定格式。Safari/iOS 使用原生 HLS，其他支持 MediaSource 的浏览器使用内置 hls.js。服务器需对 playlist、分片、密钥及字幕响应统一返回 `Access-Control-Allow-Origin`；使用 Cookie 时不能使用 `*`。
+
+HLS 轨道通过 `getTracks()` 暴露，清晰度通过现有 `qualities`/`qualitychange` API 选择。第一版不支持 DRM、本地 m3u8 文件和浏览器不支持的 HEVC/AV1/AC-3 编码。

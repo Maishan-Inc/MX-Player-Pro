@@ -13,6 +13,8 @@ export const MxPlayer = defineComponent({
   props: {
     url: { type: String, default: undefined },
     file: { type: Object as PropType<File>, default: undefined },
+    format: { type: String as PropType<'auto' | 'mkv' | 'hls'>, default: 'auto' },
+    hls: { type: Object as PropType<{ lowLatencyMode?: boolean; withCredentials?: boolean; maxBufferLength?: number }>, default: undefined },
     autoplay: { type: Boolean, default: false },
     muted: { type: Boolean, default: false },
     volume: { type: Number, default: 0.85 },
@@ -34,6 +36,8 @@ export const MxPlayer = defineComponent({
         playerElm: container.value,
         url: props.url,
         file: props.file,
+        format: props.format,
+        hls: props.hls,
         autoplay: props.autoplay,
         muted: props.muted,
         volume: props.volume,
@@ -53,7 +57,10 @@ export const MxPlayer = defineComponent({
 
     // 换源要走 load()，重建实例会白白丢掉已缓存的分片。
     watch(() => props.url, (next) => {
-      if (next && player.value) void player.value.load({ kind: 'url', url: next })
+      if (next && player.value) void player.value.load({ kind: 'url', url: next, format: props.format })
+    })
+    watch(() => props.format, (next) => {
+      if (props.url && player.value) void player.value.load({ kind: 'url', url: props.url, format: next })
     })
     watch(() => props.file, (next) => {
       if (next && player.value) void player.value.load({ kind: 'file', file: next })

@@ -96,3 +96,17 @@ pnpm build:lib
 发布时可以勾选 **保留此版本**：除了更新 `@cdn`，还会额外打一个不可变的 `sdk-v<version>` 标签，作为可长期引用的锚点。这个标签之后不会被任何新发布覆盖或删除。不勾选就只更新 `@cdn`，仓库不会堆积旧版本。
 
 仓库以 MIT License 发布。
+# HLS / m3u8
+
+远程 HLS 播放列表可直接传入 `url`，播放器会按浏览器能力选择 Safari 原生 HLS 或 `hls.js` + MSE：
+
+```ts
+const player = new MXPlayer({
+  playerElm: '#player',
+  url: 'https://media.example.com/master.m3u8',
+  format: 'hls',
+  hls: { lowLatencyMode: false },
+})
+```
+
+`format` 支持 `auto`、`mkv`、`hls`，省略时会根据 `.m3u8` 后缀自动识别。HLS 的 playlist、分片、密钥和 WebVTT 字幕都由浏览器直连源站，必须统一配置 CORS；本版本不包含 DRM、FFmpeg/WASM 转码或本地 m3u8 文件解析。

@@ -1,4 +1,4 @@
-import type { TrackInfo } from './types'
+import type { MediaFormat, TrackInfo } from './types'
 
 export interface MXPlayerQuality {
   id: string
@@ -17,8 +17,15 @@ export interface MXPlayerDanmakuOptions {
 export interface MXPlayerOptions {
   /** 播放器容器选择器或 DOM 元素。 */
   playerElm: string | HTMLElement
-  /** 云端 MKV 下载地址，需支持 CORS 与 Range。 */
+  /** 云端 MKV 或 HLS (.m3u8) 地址，需支持 CORS。 */
   url?: string
+  /** Source format; auto detects .m3u8 URLs and otherwise keeps MKV behavior. */
+  format?: MediaFormat
+  hls?: {
+    lowLatencyMode?: boolean
+    withCredentials?: boolean
+    maxBufferLength?: number
+  }
   /** 本地文件，与 url 二选一。 */
   file?: File
   /** 播放器标题；未提供时从 URL 或文件名推导。 */
