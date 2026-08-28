@@ -19,7 +19,7 @@ const LOG_LIMIT = 400
 const MESSAGE_MARK = 'mx-playground'
 const MIN_PANE = 18
 const MAX_PANE = 82
-const CDN_SDK_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8'
+const CDN_SDK_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8'
 const CDN_SDK_JS = `${CDN_SDK_BASE}/mx-player.js`
 const CDN_SDK_CSS = `${CDN_SDK_BASE}/mx-player.css`
 

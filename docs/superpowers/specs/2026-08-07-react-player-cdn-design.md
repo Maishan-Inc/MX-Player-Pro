@@ -108,11 +108,11 @@ new MXPlayer({
 推荐 URL：
 
 ```text
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.js
 https://player.freeanime.org/sdk/mx-player.js
 ```
 
-发布流程继续把 `dist-lib` 放入 `cdn` 分支。每个正式版本还要在该产物提交上创建不可变的 `sdk-v<version>` tag，例如 `sdk-v1.2.0`；生产文档使用 `@sdk-v1.2.0`，只把长期可变的 `@cdn` 用于体验最新版。
+发布流程继续把 `dist-lib` 放入 `cdn` 分支。每个正式版本还要在该产物提交上创建不可变的 `sdk-v<version>` tag，例如当前 `sdk-v0.2.8`；生产文档使用不可变标签，只把长期可变的 `@cdn` 用于体验最新版。
 
 ## 8. WASM 移除与兼容
 
@@ -123,17 +123,17 @@ https://player.freeanime.org/sdk/mx-player.js
 - `build:wasm`、`wasm-pack` CI 步骤、`dist-lib/wasm` 复制和产物校验。
 - 页面中不准确的“Rust/WASM 完整解封装”描述。
 
-EBML 魔数检查由 TypeScript 实现。为减少现有接入代码的立即破坏，`wasmBaseUrl` 在整个 1.x 版本继续作为已废弃、无效果的可选参数存在，在下一次主版本升级时删除；文档和新示例不再展示它。
+EBML 魔数检查由 TypeScript 实现。为减少现有接入代码的立即破坏，`wasmBaseUrl` 在整个 0.x 版本继续作为已废弃、无效果的可选参数存在，在下一次主版本升级时删除；文档和新示例不再展示它。
 
 ## 9. 普通 JavaScript 与框架接入
 
 普通网页使用 jsDelivr 的 ES Module 和 CSS：
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.css">
 <div id="player" style="width:100%;aspect-ratio:16/9"></div>
 <script type="module">
-  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js'
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#player',

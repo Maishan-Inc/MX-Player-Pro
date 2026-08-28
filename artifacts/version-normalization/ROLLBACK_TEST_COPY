@@ -1,7 +1,7 @@
 {
   "name": "mx-player-pro",
   "private": true,
-  "version": "0.2.8",
+  "version": "1.2.0",
   "type": "module",
   "license": "MIT",
   "repository": {

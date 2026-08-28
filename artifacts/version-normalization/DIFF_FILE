@@ -1,0 +1,14 @@
+Changed branch/field: release version metadata and developer-facing version references.
+
+Product version
+- package.json, Vite, library build, and workflow defaults used the previous 1.x values.
++ All product defaults now use 0.2.8.
+
+Demo and documentation
+- Examples referenced previous sdk-v1.x or sdk-v2.x tags.
++ Examples and current CDN guidance reference sdk-v0.2.8 for matching JS/CSS.
+
+Release tags
+- Historical 1.x tags remain only in local Git metadata.
++ New releases are configured to use v0.2.8 and sdk-v0.2.8.
++ SDK publishing now retains the immutable version tag by default.

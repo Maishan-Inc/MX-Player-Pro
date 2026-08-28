@@ -40,7 +40,7 @@ export interface MXPlayerOptions {
   muted?: boolean
   /** CSP 禁止 blob: Worker 时使用的同源 Worker 地址。 */
   workerUrl?: string | URL
-  /** @deprecated 1.x 中保留兼容，播放器已不再加载 WASM。 */
+  /** @deprecated 0.x 中保留兼容，播放器已不再加载 WASM。 */
   wasmBaseUrl?: string
   /** 提供后显示“下一集”按钮。 */
   onNext?: () => void

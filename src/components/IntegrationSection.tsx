@@ -2,9 +2,9 @@ import { Fragment, useState } from 'react'
 import { Check, Copy, Terminal } from 'lucide-react'
 
 // JS 与 CSS 固定到同一个不可变 SDK 标签，避免 CDN 缓存出现金字塔版本组合。
-const CDN_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8'
+const CDN_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8'
 const PAGES_BASE = 'https://player.freeanime.org/sdk'
-const NPM_INSTALL = 'npm install github:Maishan-Inc/MX-Player-Pro#sdk-v1.2.8'
+const NPM_INSTALL = 'npm install github:Maishan-Inc/MX-Player-Pro#sdk-v0.2.8'
 
 /**
  * 前两个 tab 从 CDN 直接引 ES module，后三个走 npm 安装。两组之间加分隔符，

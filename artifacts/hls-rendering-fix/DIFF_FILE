@@ -13,7 +13,7 @@ src/lib/hls-backend.ts
 
 CDN integration
 - Floating @cdn references.
-+ Immutable sdk-v1.2.8 references for matching JS/CSS and npm examples.
++ Immutable sdk-v0.2.8 references for matching JS/CSS and npm examples.
 
 README.md and INTEGRATION.md
-+ Default integration snippets use the same immutable sdk-v1.2.8 tag.
++ Default integration snippets use the same immutable sdk-v0.2.8 tag.

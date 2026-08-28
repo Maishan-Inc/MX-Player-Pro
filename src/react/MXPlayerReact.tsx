@@ -15,7 +15,7 @@ export interface MXPlayerProps {
   volume?: number
   localPlayback?: boolean
   workerUrl?: string | URL
-  /** @deprecated 1.x 兼容参数，播放器已不再加载 WASM。 */
+  /** @deprecated 0.x 兼容参数，播放器已不再加载 WASM。 */
   wasmBaseUrl?: string
   onNext?: () => void
   qualities?: MXPlayerQuality[]

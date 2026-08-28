@@ -6,14 +6,14 @@
 
 ## 在网页中使用
 
-播放器默认挂载完整的 React 控制界面。示例固定到不可变的 `sdk-v1.2.8` 标签，确保 JS 与 CSS 来自同一次构建：
+播放器默认挂载完整的 React 控制界面。示例固定到不可变的 `sdk-v0.2.8` 标签，确保 JS 与 CSS 来自同一次构建：
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.css">
 <div id="mse" style="width:100%;aspect-ratio:16/9"></div>
 
 <script type="module">
-  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.js'
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
@@ -93,7 +93,7 @@ pnpm build:lib
 
 `Publish SDK` workflow 把 `dist-lib/` 推送到 `cdn` 分支，jsDelivr 直接读取这棵 Git 树。发布结束后 workflow 会自动清理 jsDelivr 缓存，`@cdn` 立即生效，不需要手动去 purge。
 
-发布时可以勾选 **保留此版本**：除了更新 `@cdn`，还会额外打一个不可变的 `sdk-v<version>` 标签，作为可长期引用的锚点。这个标签之后不会被任何新发布覆盖或删除。不勾选就只更新 `@cdn`，仓库不会堆积旧版本。
+发布流程默认保留当前版本：除了更新 `@cdn`，还会额外打一个不可变的 `sdk-v<version>` 标签，作为可长期引用的锚点。这个标签之后不会被任何新发布覆盖或删除。
 
 仓库以 MIT License 发布。
 # HLS / m3u8

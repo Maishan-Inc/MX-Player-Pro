@@ -1,0 +1,29 @@
+Changed branch/field: release version metadata and demo/documentation version references.
+Original package.json blob hash: 2b4a8ccdf268758bc3d1aeecd0d0d906ba03bd1e
+MODIFIED_FILE hash: a5d109c1bbc46194b261c69e1567c230f83e875c
+
+Artifacts:
+MODIFIED_FILE: F:/Kaifa/MX-Player-Pro/artifacts/version-normalization/MODIFIED_FILE
+DIFF_FILE: F:/Kaifa/MX-Player-Pro/artifacts/version-normalization/DIFF_FILE
+VERIFICATION.txt: F:/Kaifa/MX-Player-Pro/artifacts/version-normalization/VERIFICATION.txt
+ROLLBACK.sh: F:/Kaifa/MX-Player-Pro/artifacts/version-normalization/ROLLBACK.sh
+
+BASELINE exact command:
+pnpm test
+BASELINE literal output/result:
+> mx-player-pro@0.2.8 test; Test Files 21 passed (21); Tests 191 passed (191); exit status 0.
+
+MODIFIED exact commands:
+pnpm lint
+pnpm test
+pnpm build
+pnpm build:lib
+MODIFIED literal output/result:
+TypeScript check completed; Test Files 21 passed (21); Tests 191 passed (191); Vite app and library builds completed; exit status 0 for each command.
+
+ROLLBACK exact command:
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((Get-Content -Raw artifacts/version-normalization/ROLLBACK.sh))) artifacts/version-normalization/ROLLBACK_TEST_COPY"
+ROLLBACK literal output/result:
+Restored artifacts/version-normalization/ROLLBACK_TEST_COPY from HEAD:package.json; exit status 0.
+Restored behavior/status:
+ROLLBACK_TEST_COPY hash equals 2b4a8ccdf268758bc3d1aeecd0d0d906ba03bd1e; MODIFIED_FILE remains changed with hash a5d109c1bbc46194b261c69e1567c230f83e875c.

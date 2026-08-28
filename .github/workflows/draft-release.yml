@@ -5,12 +5,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（例如 1.0.0，不带 v 前缀）'
+        description: '版本号（例如 0.2.8，不带 v 前缀）'
         required: true
-        default: '1.2.0'
+        default: '0.2.8'
         type: string
       tag:
-        description: 'Git tag（留空则用 version 自动拼接）'
+        description: 'Git tag（例如 v0.2.8；留空则用 version 自动拼接）'
         required: false
         type: string
 

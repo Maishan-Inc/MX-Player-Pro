@@ -6,7 +6,7 @@ const root = new URL('..', import.meta.url)
 const outDir = new URL('./dist-lib/', root)
 
 // 版本号由 CI 通过 APP_VERSION 传入，同时注入到代码和 package.json。
-const version = process.env.APP_VERSION || '1.2.0-dev'
+const version = process.env.APP_VERSION || '0.2.8'
 
 // 独立版需要把 React 运行时打进去，React 适配器则保留 peer dependency；
 // 独立版、框架适配器与 CSP Worker 分开构建，避免一个全局 external 配置

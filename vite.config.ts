@@ -13,7 +13,7 @@ const entry = (path: string) => fileURLToPath(new URL(path, import.meta.url))
  * 开发者用经典 <script src> 的 UMD/IIFE 版本。
  */
 export default defineConfig(({ mode }) => {
-  const version = process.env.APP_VERSION || '1.2.0-dev'
+  const version = process.env.APP_VERSION || '0.2.8'
 
   if (process.env.BUILD_MODE === 'lib') {
     const variant = process.env.LIB_VARIANT || 'standalone'

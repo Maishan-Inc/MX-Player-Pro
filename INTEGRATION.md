@@ -17,14 +17,14 @@ MX Player Pro 是纯客户端 Matroska 播放器。浏览器通过 HTTP Range �
 
 ## 一、jsDelivr
 
-生产接入请固定到不可变的 `sdk-v1.2.8` 标签，确保 JS 与 CSS 来自同一次构建：
+生产接入请固定到不可变的 `sdk-v0.2.8` 标签，确保 JS 与 CSS 来自同一次构建：
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.css">
 <div id="mse" style="width:100%;aspect-ratio:16/9"></div>
 
 <script type="module">
-  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.js'
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
@@ -45,11 +45,11 @@ MX Player Pro 是纯客户端 Matroska 播放器。浏览器通过 HTTP Range �
 完整文件清单：
 
 ```text
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.js
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.css
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player-react.js
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player-vue.js
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player-worker.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.css
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player-react.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player-vue.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player-worker.js
 ```
 
 > 不要用 `@latest` 或浮动的 `@cdn` 作为生产依赖；升级时请同时替换 JS 与 CSS 的 `sdk-v<version>` 标签。
@@ -68,15 +68,15 @@ https://purge.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js
 
 ### 需要长期锁定某个版本时
 
-发布时可以勾选 **保留此版本**，workflow 会在更新 `@cdn` 的同时，额外打一个不可变的 `sdk-v<version>` 标签。这个标签之后不会被任何新发布覆盖或删除，可以放心长期引用：
+发布流程默认保留当前版本，workflow 会在更新 `@cdn` 的同时，额外打一个不可变的 `sdk-v<version>` 标签。这个标签之后不会被任何新发布覆盖或删除，可以放心长期引用：
 
 ```html
 <script type="module">
-  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v2.0.0/mx-player.js'
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8/mx-player.js'
 </script>
 ```
 
-没有勾选保留的发布不会产生标签，只有 `@cdn` 会前进。默认接入请直接用 `@cdn`。
+如需仅更新浮动的 `@cdn`，可以在 workflow 中关闭保留版本；生产接入仍建议使用不可变标签。
 
 ### 为什么跨域 SDK 不再触发 Worker 同源错误
 
@@ -133,13 +133,13 @@ Content-Security-Policy: worker-src 'self'; script-src 'self' https://cdn.jsdeli
 
 ## 三、npm / 构建工具
 
-从 `cdn` 分支安装，始终拿到最新一次 SDK 发布：
+生产环境请安装不可变的 `sdk-v0.2.8` 标签，确保 JS、CSS 与 Worker 来自同一次构建：
 
 ```bash
-npm install github:Maishan-Inc/MX-Player-Pro#cdn
+npm install github:Maishan-Inc/MX-Player-Pro#sdk-v0.2.8
 ```
 
-npm 会把解析到的 commit 写进 lockfile，所以安装结果本身是可复现的；要升级就重新安装。如果需要锁到某个保留版本，把 `#cdn` 换成 `#sdk-v<version>`。
+npm 会把解析到的 commit 写进 lockfile，所以安装结果本身是可复现的；升级时请同时更新 SDK 标签与 CSS。
 
 ### 原生 JavaScript / TypeScript
 
@@ -229,7 +229,7 @@ const onError = ({ message }: { message: string }) => console.error(message)
 | `onQualityChange` | `(id) => void` | — | 清晰度选择回调，实际换源由宿主处理。 |
 | `danmaku` | `object` | — | 可选弹幕显示/输入入口，数据与渲染由宿主负责。 |
 | `onTheaterChange` | `(enabled) => void` | — | 剧场模式变化通知。 |
-| `wasmBaseUrl` | `string` | — | 已废弃；1.x 仅保留类型兼容，当前不会加载 WASM。 |
+| `wasmBaseUrl` | `string` | — | 已废弃；0.x 仅保留类型兼容，当前不会加载 WASM。 |
 
 ### 方法
 
