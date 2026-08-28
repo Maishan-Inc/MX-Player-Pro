@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Ban, Copy, Check, Moon, Play, RotateCcw, Sun } from 'lucide-react'
-import STARTER_CODE from './playground-starter.html?raw'
+import RAW_STARTER from './playground-starter.html?raw'
 import { tokenize } from '../lib/highlight'
 
 type LogLevel = 'log' | 'info' | 'warn' | 'error' | 'system'
@@ -19,9 +19,13 @@ const LOG_LIMIT = 400
 const MESSAGE_MARK = 'mx-playground'
 const MIN_PANE = 18
 const MAX_PANE = 82
-const CDN_SDK_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v0.2.8'
+// 与页脚同源：版本来自构建参数，示例代码里的 CDN 链接跟随发布版本。
+const CDN_SDK_BASE = `https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v${__APP_VERSION__}`
 const CDN_SDK_JS = `${CDN_SDK_BASE}/mx-player.js`
 const CDN_SDK_CSS = `${CDN_SDK_BASE}/mx-player.css`
+// ?raw 导入不经过 vite 的 define 替换，所以示例 HTML 里写占位符，
+// 在模块加载时替换成上面按版本拼出的真实地址。
+const STARTER_CODE = RAW_STARTER.replaceAll('{{SDK_CDN}}', CDN_SDK_BASE)
 
 /**
  * 注入到预览文档里的桥接脚本。它是普通脚本，一定先于示例代码里的 module 执行，
