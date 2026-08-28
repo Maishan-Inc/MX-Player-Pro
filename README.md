@@ -6,14 +6,14 @@
 
 ## 在网页中使用
 
-播放器默认挂载完整的 React 控制界面。`@cdn` 始终指向最新一次 SDK 发布，接入方不需要跟着改地址：
+播放器默认挂载完整的 React 控制界面。示例固定到不可变的 `sdk-v1.2.8` 标签，确保 JS 与 CSS 来自同一次构建：
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.css">
 <div id="mse" style="width:100%;aspect-ratio:16/9"></div>
 
 <script type="module">
-  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js'
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
@@ -28,7 +28,7 @@
 
 GitHub Pages 入口同样是最新版：`https://player.freeanime.org/sdk/mx-player.js` 与 `mx-player.css`。
 
-> 不要用 `@latest`。jsDelivr 的 `@latest` 解析到仓库最新的 Git tag，而那不一定是 SDK 产物标签。要最新版就用 `@cdn`。
+> 不要用 `@latest` 或浮动的 `@cdn` 作为生产依赖；升级时请同时替换 JS 与 CSS 的 `sdk-v<version>` 标签。
 
 完整接入方式、React/Vue 组件和 API 参考见 [INTEGRATION.md](./INTEGRATION.md)。
 

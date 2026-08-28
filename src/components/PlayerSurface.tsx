@@ -253,6 +253,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       setStats(EMPTY_STATS)
       const backend = new HlsBackend(hlsVideoRef.current, hlsOptions, (event: HlsBackendEvent) => {
         if (event.type === 'ready') {
+          setError('')
           const snapshot = backend.getSnapshot()
           setHlsLive(snapshot.live)
           const tracks = backend.getTracks()
@@ -262,7 +263,7 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
           setProgress('HLS 已就绪')
           propsRef.current.onReady?.({ tracks, duration: snapshot.duration })
           if (autoplay) window.setTimeout(() => { if (!playingRef.current) playMedia() }, 0)
-        } else if (event.type === 'play') { setPlaying(true); playingRef.current = true; propsRef.current.onPlay?.() }
+        } else if (event.type === 'play') { setError(''); setPlaying(true); playingRef.current = true; propsRef.current.onPlay?.() }
         else if (event.type === 'pause') { setPlaying(false); playingRef.current = false; propsRef.current.onPause?.() }
         else if (event.type === 'timeupdate') { const s = backend.getSnapshot(); setCurrentTime(s.currentTime); setStats({ ...EMPTY_STATS, currentTime: s.currentTime, bufferedStart: s.bufferedStart, bufferedEnd: s.bufferedEnd, bufferedAhead: s.bufferedAhead, stalled: s.stalled }); propsRef.current.onTimeUpdate?.({ currentTime: s.currentTime, duration: s.duration }) }
         else if (event.type === 'stalled') { setStats((current) => ({ ...current, stalled: event.stalled })) }
@@ -289,8 +290,8 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
       setBackendKind('native')
       setMetadata(null); setProbe(null); setProgress('正在加载媒体…'); setError(''); setPlaying(false); setCurrentTime(0); setStats(EMPTY_STATS)
       const backend = new NativeBackend(hlsVideoRef.current, (event) => {
-        if (event.type === 'ready') { const snapshot = backend.getSnapshot(); const tracks = backend.getTracks(); setMetadata({ tracks, duration: snapshot.duration }); readyRef.current = true; setProgress('媒体已就绪'); propsRef.current.onReady?.({ tracks, duration: snapshot.duration }); if (autoplay) window.setTimeout(() => { if (!playingRef.current) playMedia() }, 0) }
-        else if (event.type === 'play') { setPlaying(true); playingRef.current = true; propsRef.current.onPlay?.() }
+        if (event.type === 'ready') { setError(''); const snapshot = backend.getSnapshot(); const tracks = backend.getTracks(); setMetadata({ tracks, duration: snapshot.duration }); readyRef.current = true; setProgress('媒体已就绪'); propsRef.current.onReady?.({ tracks, duration: snapshot.duration }); if (autoplay) window.setTimeout(() => { if (!playingRef.current) playMedia() }, 0) }
+        else if (event.type === 'play') { setError(''); setPlaying(true); playingRef.current = true; propsRef.current.onPlay?.() }
         else if (event.type === 'pause') { setPlaying(false); playingRef.current = false; propsRef.current.onPause?.() }
         else if (event.type === 'timeupdate') { const s = backend.getSnapshot(); setCurrentTime(s.currentTime); setStats({ ...EMPTY_STATS, currentTime: s.currentTime, bufferedStart: s.bufferedStart, bufferedEnd: s.bufferedEnd, bufferedAhead: s.bufferedAhead, stalled: s.stalled }); propsRef.current.onTimeUpdate?.({ currentTime: s.currentTime, duration: s.duration }) }
         else if (event.type === 'stalled') setStats((current) => ({ ...current, stalled: event.stalled }))

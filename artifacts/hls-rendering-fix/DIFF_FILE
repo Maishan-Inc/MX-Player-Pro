@@ -1,0 +1,19 @@
+Changed branch/field: player rendering stack and HLS SDK references.
+
+src/player.css
+- Canvas and video used normal document flow.
++ Direct media children of .player-frame are absolutely positioned over the same frame.
++ Hidden media elements use display: none !important.
+
+src/components/PlayerSurface.tsx
++ Clear the transient playback error when HLS/native backends emit ready or play.
+
+src/lib/hls-backend.ts
++ HLS ERROR diagnostics include level, frag.sn, details, and the underlying error.
+
+CDN integration
+- Floating @cdn references.
++ Immutable sdk-v1.2.8 references for matching JS/CSS and npm examples.
+
+README.md and INTEGRATION.md
++ Default integration snippets use the same immutable sdk-v1.2.8 tag.

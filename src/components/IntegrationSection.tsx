@@ -1,11 +1,10 @@
 import { Fragment, useState } from 'react'
 import { Check, Copy, Terminal } from 'lucide-react'
 
-// 示例统一用 @cdn，它永远指向最新一次发布。发布时勾选"保留此版本"才会产生
-// 不可变的 sdk-v 标签，所以这里不能按当前版本号拼 tag——那个 tag 不一定存在。
-const CDN_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn'
+// JS 与 CSS 固定到同一个不可变 SDK 标签，避免 CDN 缓存出现金字塔版本组合。
+const CDN_BASE = 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8'
 const PAGES_BASE = 'https://player.freeanime.org/sdk'
-const NPM_INSTALL = 'npm install github:Maishan-Inc/MX-Player-Pro#cdn'
+const NPM_INSTALL = 'npm install github:Maishan-Inc/MX-Player-Pro#sdk-v1.2.8'
 
 /**
  * 前两个 tab 从 CDN 直接引 ES module，后三个走 npm 安装。两组之间加分隔符，
@@ -29,7 +28,7 @@ const SNIPPETS: Snippet[] = [
 <div id="mse" style="aspect-ratio:16/9"></div>
 
 <script type="module">
-  // @cdn 始终指向最新一次发布，升级 SDK 不需要改任何代码。
+  // JS 与 CSS 来自同一个不可变 SDK 标签。
   import { MXPlayer } from '${CDN_BASE}/mx-player.js'
 
   const player = new MXPlayer({
@@ -234,7 +233,7 @@ export default function IntegrationSection({ onOpenPlayground }: { onOpenPlaygro
       </div>
 
       <p className="integration-note">
-        需要 Chrome/Edge 94+ 或 Safari 16.4+（WebCodecs）。远端 MKV 须开启 CORS 并支持 Range 请求。当前版本 v{__APP_VERSION__}；上面的 <code>@cdn</code> 始终指向最新一次发布，无需跟随版本号改地址。
+        需要 Chrome/Edge 94+ 或 Safari 16.4+（WebCodecs）。远端 MKV 须开启 CORS 并支持 Range 请求。当前版本 v{__APP_VERSION__}；示例固定到不可变 SDK 标签，升级时请同步替换 JS 与 CSS。
       </p>
     </section>
   )

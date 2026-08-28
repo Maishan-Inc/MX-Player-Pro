@@ -17,14 +17,14 @@ MX Player Pro 是纯客户端 Matroska 播放器。浏览器通过 HTTP Range �
 
 ## 一、jsDelivr
 
-`@cdn` 始终指向最新一次 SDK 发布，接入方写死这个地址即可，升级时不需要改任何东西：
+生产接入请固定到不可变的 `sdk-v1.2.8` 标签，确保 JS 与 CSS 来自同一次构建：
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.css">
 <div id="mse" style="width:100%;aspect-ratio:16/9"></div>
 
 <script type="module">
-  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js'
+  import { MXPlayer } from 'https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.js'
 
   const player = new MXPlayer({
     playerElm: '#mse',
@@ -45,14 +45,14 @@ MX Player Pro 是纯客户端 Matroska 播放器。浏览器通过 HTTP Range �
 完整文件清单：
 
 ```text
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.js
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player.css
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player-react.js
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player-vue.js
-https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@cdn/mx-player-worker.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player.css
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player-react.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player-vue.js
+https://cdn.jsdelivr.net/gh/Maishan-Inc/MX-Player-Pro@sdk-v1.2.8/mx-player-worker.js
 ```
 
-> 不要用 `@latest`。jsDelivr 的 `@latest` 解析到仓库里最新的 Git tag，而那不一定是 SDK 产物标签，可能直接 404。要最新版就用 `@cdn`。
+> 不要用 `@latest` 或浮动的 `@cdn` 作为生产依赖；升级时请同时替换 JS 与 CSS 的 `sdk-v<version>` 标签。
 
 ### 缓存与更新时机
 

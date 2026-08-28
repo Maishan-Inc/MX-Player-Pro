@@ -53,18 +53,9 @@
 .mx-player-embed .player-frame { height: 100%; min-height: 0; }
 .player-frame:focus-visible { box-shadow: inset 0 0 0 2px #fff; }
 .player-frame:fullscreen { width: 100vw; height: 100vh; min-height: 0; aspect-ratio: auto; }
-.player-frame > .video-canvas,
-.player-frame > .video-element {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #000;
-}
-.player-frame > .video-element.is-hidden,
-.player-frame > .video-canvas.is-hidden { display: none !important; }
+.video-canvas { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.video-element { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.video-element.is-hidden, .video-canvas.is-hidden { display: none; }
 
 .player-loading,
 .player-error {

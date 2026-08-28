@@ -91,7 +91,14 @@ export class HlsBackend implements PlaybackBackend {
       this.emit({ type: 'tracksupdate' })
     })
     hls.on(Hls.Events.ERROR, (_event, data) => {
-      console.log('[MX Player HLS] ERROR event:', { fatal: data.fatal, type: data.type, details: data.details })
+      console.log('[MX Player HLS] ERROR event:', {
+        fatal: data.fatal,
+        type: data.type,
+        details: data.details,
+        level: data.level,
+        fragSn: data.frag?.sn,
+        error: data.error,
+      })
       if (!data.fatal) return
       const detail = String(data.details || '')
       if (/cors/i.test(detail)) { this.emit({ type: 'error', code: 'HLS_CORS_BLOCKED', detail }); return }
