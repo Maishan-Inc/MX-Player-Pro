@@ -449,6 +449,12 @@ export class WebCodecsEngine {
           duration: packet.duration || undefined,
           data: packet.data,
         }))
+        // Restart the prime deadline here, not at seek time: a seek into
+        // unbuffered territory spends the whole deadline on range fetches, and
+        // decoder output is asynchronous — without this the liveness check fired
+        // in the very tick that fed the decoder, ahead of its first PCM, and
+        // permanently muted a perfectly healthy track.
+        this.audioWaitSince = performance.now()
       } catch (error) {
         this.failAudio(error)
         break

@@ -120,6 +120,74 @@ describe('WebCodecsEngine.configure', () => {
     engine.close()
   })
 
+  it('disables an audio track whose decoder never emits PCM within the deadline', async () => {
+    stubGlobals()
+    const statuses: EngineStatus[] = []
+    const engine = new WebCodecsEngine(canvas(), (status) => statuses.push(status))
+    await engine.configure(videoTrack, { id: 2, kind: 'audio', codecId: 'A_FLAC', codec: 'flac', channels: 2 })
+    const internal = engine as unknown as {
+      playing: boolean
+      audioWaitSince: number
+      tick: () => void
+    }
+    internal.playing = true
+    engine.seekTo(30)
+    engine.enqueue({ trackId: 1, timestamp: 30_000_000, duration: 33_000, key: true, data: new Uint8Array(4) }, 1, 2)
+    engine.enqueue({ trackId: 2, timestamp: 30_000_000, duration: 21_000, key: true, data: new Uint8Array(4) }, 1, 2)
+    // The batch is fed to the (stub) decoder, which never emits output.
+    internal.tick()
+    // ...and the prime deadline expires with the decoder silent.
+    internal.audioWaitSince = performance.now() - 6000
+    internal.tick()
+    expect(statuses[statuses.length - 1]).toEqual({
+      videoReady: true,
+      audioReady: false,
+      error: 'DECODER_ERROR_AUDIO:音频轨没有解码输出',
+    })
+    engine.close()
+  })
+
+  // A seek to an unbuffered position makes the demux worker spend seconds on range
+  // fetches before the first batch arrives. The prime deadline must run from the
+  // moment the decoder is actually given work, not from the seek itself: otherwise
+  // the liveness check fires in the same tick that feeds the decoder, ahead of its
+  // asynchronous first output, and the track is disabled right after a slow seek.
+  it('does not kill the audio track while a slow seek is still priming', async () => {
+    stubGlobals()
+    vi.stubGlobal('AudioContext', StubAudioContext)
+    const statuses: EngineStatus[] = []
+    const engine = new WebCodecsEngine(canvas(), (status) => statuses.push(status))
+    await engine.configure(videoTrack, { id: 2, kind: 'audio', codecId: 'A_FLAC', codec: 'flac', channels: 2 })
+    const internal = engine as unknown as {
+      playing: boolean
+      audioWaitSince: number
+      tick: () => void
+      onAudioData: (data: unknown) => void
+      audioPrimed: boolean
+    }
+    internal.playing = true
+    engine.seekTo(30)
+    // Simulate the seek fetch having taken six seconds: the deadline has already
+    // expired by the time the first packets arrive.
+    internal.audioWaitSince = performance.now() - 6000
+    engine.enqueue({ trackId: 1, timestamp: 30_000_000, duration: 33_000, key: true, data: new Uint8Array(4) }, 1, 2)
+    engine.enqueue({ trackId: 2, timestamp: 30_000_000, duration: 21_000, key: true, data: new Uint8Array(4) }, 1, 2)
+    internal.tick()
+    expect(statuses[statuses.length - 1]?.error).toBeUndefined()
+    // The decoder's asynchronous output lands right after and must schedule cleanly.
+    internal.onAudioData({
+      numberOfFrames: 1024,
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+      timestamp: 30_000_000,
+      copyTo: () => {},
+      close: vi.fn(),
+    })
+    expect(internal.audioPrimed).toBe(true)
+    expect(statuses[statuses.length - 1]?.error).toBeUndefined()
+    engine.close()
+  })
+
   it('drops a PCM block and releases the audio clock when sample conversion fails', async () => {
     stubGlobals()
     vi.stubGlobal('AudioContext', StubAudioContext)
