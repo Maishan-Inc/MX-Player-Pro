@@ -1,0 +1,34 @@
+{
+  "name": "mx-player-pro",
+  "version": "0.2.8.2",
+  "type": "module",
+  "exports": {
+    ".": "./mx-player.js",
+    "./vue": "./mx-player-vue.js",
+    "./react": "./mx-player-react.js",
+    "./worker.js": "./mx-player-worker.js",
+    "./style.css": "./mx-player.css"
+  },
+  "style": "./mx-player.css",
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18",
+    "vue": ">=3.3"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Maishan-Inc/MX-Player-Pro.git"
+  }
+}
