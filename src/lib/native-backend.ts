@@ -13,6 +13,8 @@ export class NativeBackend implements PlaybackBackend {
   constructor(video: HTMLVideoElement, emit: (event: HlsBackendEvent) => void = () => undefined) { this.video = video; this.emit = emit }
   async load(source: SourceDescriptor): Promise<void> {
     if (source.kind !== 'url') throw new Error('NATIVE_UNSUPPORTED:本地媒体文件请使用 MKV')
+    // Signed direct links (Quark etc.) reject requests bearing a Referer with 403.
+    this.video.setAttribute('referrerpolicy', 'no-referrer')
     this.destroyRuntime(); this.ready = false; this.bindEvents(); this.video.src = source.url.trim(); this.video.load()
   }
   async play(): Promise<void> { await this.video.play() }

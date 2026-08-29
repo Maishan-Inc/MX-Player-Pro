@@ -1077,7 +1077,9 @@ const PlayerSurface = forwardRef<PlayerSurfaceHandle, PlayerSurfaceProps>(functi
             aria-label="MX Player 视频播放器"
           >
             <canvas ref={canvasRef} className={`video-canvas ${backendKind !== 'mkv' ? 'is-hidden' : ''}`} aria-label="视频画面" />
-            <video ref={hlsVideoRef} className={`video-element ${backendKind !== 'mkv' ? '' : 'is-hidden'}`} playsInline preload="auto" aria-label="视频画面" />
+            {/* Cloud-drive CDNs (e.g. Quark) reject requests bearing a Referer with 403. */}
+            <video ref={(el) => { hlsVideoRef.current = el; el?.setAttribute('referrerpolicy', 'no-referrer') }} className={`video-element ${backendKind !== 'mkv' ? '' : 'is-hidden'}`}
+              playsInline preload="auto" aria-label="视频画面" />
             {!metadata && !error && <div className="player-loading" data-player-control><span className="spinner" /><strong>{progress}</strong></div>}
             {metadata && !error && stats.stalled && (
               <div className="player-buffering" data-player-control><span className="spinner" /><strong>缓冲中…</strong></div>

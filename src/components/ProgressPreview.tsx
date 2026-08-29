@@ -107,7 +107,7 @@ export default function ProgressPreview({ currentTime, duration, bufferedEnd, se
         >
           {sourceUrl && !previewFailed && (
             <video
-              ref={previewVideoRef}
+              ref={(el) => { previewVideoRef.current = el; el?.setAttribute('referrerpolicy', 'no-referrer') }}
               className="mx-player-progress-preview-video"
               src={sourceUrl}
               muted
